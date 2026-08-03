@@ -1,0 +1,3399 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BSC — Live Jobs Tracker</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg:           #f2f0eb;
+  --surface:      #ffffff;
+  --surface2:     #f8f7f4;
+  --border:       #d8d4cc;
+  --border-dark:  #b0aa9f;
+  --text:         #1a1916;
+  --text-muted:   #7a7570;
+  --text-light:   #a8a49f;
+  --green:        #2d5a27;
+  --green-mid:    #4a7c43;
+  --green-light:  #e8f0e6;
+  --green-accent: #6aab5e;
+  --amber:        #c47a1e;
+  --amber-light:  #fdf3e3;
+  --red:          #b03030;
+  --red-light:    #fdeaea;
+  --blue:         #2a4a7a;
+  --blue-light:   #eef0f8;
+  /* Status — highest priority */
+  --dispatch-bg:      #d4edda;
+  --dispatch-border:  #2d5a27;
+  --started-bg:       #fce4ec;
+  --started-border:   #e91e63;
+  --dispatched-bg:    #ebebeb;
+  /* Type colours */
+  --type-delivery-bg:    #e8f4fd;
+  --type-delivery-bdr:   #7abadf;
+  --type-collection-bg:  #f3e8fd;
+  --type-collection-bdr: #b07ad8;
+  --type-amendment-bg:   #fff4e0;
+  --type-amendment-bdr:  #e8a020;
+  --type-visit-bg:       #e0f7f4;
+  --type-visit-bdr:      #26a69a;
+  --mono: 'DM Mono', monospace;
+  --sans: 'DM Sans', sans-serif;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: var(--sans); background: var(--bg); color: var(--text); min-height: 100vh; }
+
+/* ── HEADER ── */
+header {
+  background: var(--green); padding: 14px 24px;
+  display: flex; align-items: center; justify-content: space-between;
+  border-bottom: 3px solid var(--green-accent);
+  position: sticky; top: 0; z-index: 200;
+}
+.logo-area { display: flex; align-items: baseline; gap: 12px; }
+.logo-main { font-family: var(--mono); font-size: 16px; font-weight: 500; color: #fff; letter-spacing: 0.04em; }
+.logo-sub  { font-size: 11px; color: rgba(255,255,255,0.5); letter-spacing: 0.07em; text-transform: uppercase; }
+.status-bar { display: flex; align-items: center; gap: 8px; font-size: 12px; color: rgba(255,255,255,0.6); font-family: var(--mono); }
+.status-dot { width: 7px; height: 7px; border-radius: 50%; background: rgba(255,255,255,0.25); }
+.status-dot.ok      { background: var(--green-accent); box-shadow: 0 0 5px var(--green-accent); }
+.status-dot.loading { background: var(--amber); animation: pulse 1s infinite; }
+.status-dot.error   { background: var(--red); }
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+
+/* ── LOAD PANEL ── */
+.load-panel {
+  padding: 14px 24px; background: var(--surface); border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+}
+.file-zone {
+  flex: 1; min-width: 200px; border: 2px dashed var(--border-dark); border-radius: 8px;
+  background: var(--bg); padding: 11px 14px; cursor: pointer;
+  transition: border-color 0.2s, background 0.2s; display: flex; align-items: center; gap: 10px;
+}
+.file-zone:hover, .file-zone.dragover { border-color: var(--green-mid); background: var(--green-light); }
+.file-zone-text { display: flex; flex-direction: column; gap: 2px; }
+.file-zone-label { font-size: 13px; font-weight: 500; }
+.file-zone-hint  { font-size: 11px; color: var(--text-muted); font-family: var(--mono); }
+input[type="file"] { display: none; }
+.btn-load {
+  background: var(--green); color: #fff; border: none; padding: 10px 18px;
+  border-radius: 7px; font-family: var(--sans); font-size: 13px; font-weight: 600;
+  cursor: pointer; transition: background 0.2s; white-space: nowrap;
+}
+.btn-load:hover    { background: var(--green-mid); }
+.btn-load:disabled { background: var(--border-dark); cursor: not-allowed; }
+.load-hint {
+  font-size: 11px; color: var(--text-muted); font-family: var(--mono);
+  padding: 7px 11px; background: var(--amber-light); border: 1px solid #e8d0a0;
+  border-radius: 6px; line-height: 1.55;
+}
+
+/* ── TOOLBAR ── */
+.toolbar {
+  padding: 9px 24px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  background: var(--surface); border-bottom: 1px solid var(--border);
+}
+.filter-group { display: flex; align-items: center; gap: 6px; }
+.filter-label { font-size: 11px; font-weight: 500; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.06em; }
+.filter-input, .filter-select {
+  background: var(--bg); border: 1.5px solid var(--border); border-radius: 6px;
+  padding: 5px 9px; font-family: var(--sans); font-size: 13px; color: var(--text);
+  outline: none; transition: border-color 0.2s;
+}
+.filter-input:focus, .filter-select:focus { border-color: var(--green-mid); }
+.filter-input { width: 165px; }
+.toolbar-sep { width: 1px; height: 22px; background: var(--border); flex-shrink: 0; }
+.btn-sm {
+  font-family: var(--sans); font-size: 12px; font-weight: 500; cursor: pointer;
+  border: 1.5px solid var(--border-dark); border-radius: 6px; padding: 5px 11px;
+  background: var(--surface2); color: var(--text-muted); transition: all 0.15s; white-space: nowrap;
+}
+.btn-sm:hover  { border-color: var(--green-mid); color: var(--green); }
+.btn-sm.active { background: var(--dispatched-bg); color: var(--text); }
+.toolbar-right { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+.count-badge {
+  background: var(--green-light); color: var(--green); border: 1px solid #c0d9bb;
+  border-radius: 20px; padding: 3px 11px; font-size: 12px; font-weight: 600; font-family: var(--mono);
+}
+
+/* ── LEGEND ── */
+.legend {
+  padding: 6px 24px; display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+  background: var(--surface); border-bottom: 1px solid var(--border); font-size: 11px;
+}
+.legend-group { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.legend-sep { width: 1px; height: 16px; background: var(--border); }
+.legend-item { display: flex; align-items: center; gap: 4px; color: var(--text-muted); white-space: nowrap; }
+.ls { width: 11px; height: 11px; border-radius: 2px; flex-shrink: 0; }
+.ls.started    { background: var(--started-bg);        border: 1.5px solid var(--started-border); }
+.ls.dispatch   { background: var(--dispatch-bg);       border: 1.5px solid var(--dispatch-border); }
+.ls.delivery   { background: var(--type-delivery-bg);  border: 1.5px solid var(--type-delivery-bdr); }
+.ls.collection { background: var(--type-collection-bg);border: 1.5px solid var(--type-collection-bdr); }
+.ls.amendment  { background: var(--type-amendment-bg); border: 1.5px solid var(--type-amendment-bdr); }
+.ls.visit      { background: var(--type-visit-bg);     border: 1.5px solid var(--type-visit-bdr); }
+
+/* ── TEAM LEAVE PANEL ── */
+.leave-panel {
+  padding: 8px 24px; background: var(--surface); border-bottom: 1px solid var(--border);
+  display: flex; align-items: flex-start; gap: 10px; flex-wrap: wrap;
+}
+.leave-panel-label {
+  font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em;
+  color: var(--text-muted); padding-top: 6px; min-width: 52px; white-space: nowrap; flex-shrink: 0;
+}
+.leave-days { display: flex; flex-direction: row; gap: 0; align-items: flex-start; flex-wrap: wrap; }
+.leave-week { display: flex; gap: 6px; flex-wrap: wrap; align-items: flex-start; }
+.leave-week + .leave-week { border-left: 1px solid var(--border); padding-left: 12px; margin-left: 8px; }
+.leave-week-label { font-size: 10px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; font-family: var(--mono); padding-top: 6px; min-width: 60px; white-space: nowrap; flex-shrink: 0; }
+.leave-day {
+  min-width: 80px; background: var(--surface2); border: 1px solid var(--border);
+  border-radius: 6px; padding: 5px 8px;
+}
+.leave-day.today { border-color: var(--green-mid); background: var(--green-light); }
+.leave-day-name {
+  font-size: 10px; font-weight: 600; color: var(--text-muted);
+  text-transform: uppercase; letter-spacing: 0.05em; font-family: var(--mono); margin-bottom: 3px;
+}
+.leave-day.today .leave-day-name { color: var(--green); }
+.leave-person {
+  font-size: 11px; color: var(--text); line-height: 1.4;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block;
+}
+.leave-person.half { color: var(--amber); }
+.leave-none { font-size: 11px; color: var(--text-light); font-family: var(--mono); }
+.leave-status { font-size: 11px; padding-top: 6px; font-family: var(--mono); color: var(--text-muted); }
+.leave-status.error { color: var(--red); }
+
+/* ── PRINT BAR ── */
+.print-bar {
+  padding: 7px 24px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  background: #f5f3ee; border-bottom: 1px solid var(--border);
+}
+.print-bar-label { font-size: 11px; font-weight: 500; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.06em; margin-right: 4px; }
+.btn-print {
+  font-family: var(--sans); font-size: 12px; font-weight: 500; cursor: pointer;
+  border: 1.5px solid var(--border-dark); border-radius: 6px; padding: 4px 11px;
+  background: var(--surface); color: var(--text); transition: all 0.15s; white-space: nowrap;
+}
+.btn-print:hover    { border-color: var(--green-mid); background: var(--green-light); color: var(--green); }
+.btn-print:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* ── LYT ALERT ── */
+.lyt-alert {
+  display: none; align-items: flex-start; gap: 12px;
+  padding: 10px 18px 10px 16px; background: #e8f0fd;
+  border-bottom: 2px solid #5c85d6; font-size: 13px;
+}
+.lyt-alert.visible { display: flex; }
+.lyt-alert-icon { font-size: 20px; flex-shrink: 0; line-height: 1.4; }
+.lyt-alert-body { flex: 1; }
+.lyt-alert-title { font-weight: 600; color: #1a3a7a; margin-bottom: 3px; }
+.lyt-alert-jobs  { color: #2a4a9a; font-size: 12px; font-family: var(--mono); line-height: 1.7; }
+.lyt-dismiss {
+  flex-shrink: 0; background: none; border: none; cursor: pointer;
+  font-size: 16px; color: #4a6ab0; padding: 2px 4px; line-height: 1;
+  opacity: 0.6; align-self: flex-start;
+}
+.lyt-dismiss:hover { opacity: 1; }
+
+/* ── SKP ALERT ── */
+.skp-alert {
+  display: none; align-items: flex-start; gap: 12px;
+  padding: 10px 18px 10px 16px; background: #fff8e1;
+  border-bottom: 2px solid #f0a500; font-size: 13px;
+}
+.skp-alert.visible { display: flex; }
+.skp-alert-icon { font-size: 20px; flex-shrink: 0; line-height: 1.4; }
+.skp-alert-body { flex: 1; }
+.skp-alert-title { font-weight: 600; color: #7a4a00; margin-bottom: 3px; }
+.skp-alert-jobs  { color: #8a5a00; font-size: 12px; font-family: var(--mono); line-height: 1.7; }
+.skp-dismiss {
+  flex-shrink: 0; background: none; border: none; cursor: pointer;
+  font-size: 16px; color: #b07a20; padding: 2px 4px; line-height: 1;
+  opacity: 0.6; align-self: flex-start;
+}
+.skp-dismiss:hover { opacity: 1; }
+
+/* ── SEDUM ALERT ── */
+.sedum-alert {
+  display: none; align-items: flex-start; gap: 12px;
+  padding: 10px 18px 10px 16px; background: #e8f5e9;
+  border-bottom: 2px solid #66bb6a; font-size: 13px;
+}
+.sedum-alert.visible { display: flex; }
+.sedum-alert-icon { font-size: 20px; flex-shrink: 0; line-height: 1.4; }
+.sedum-alert-body { flex: 1; }
+.sedum-alert-title { font-weight: 600; color: #1b5e20; margin-bottom: 3px; }
+.sedum-alert-jobs  { color: #2e7d32; font-size: 12px; font-family: var(--mono); line-height: 1.7; }
+.sedum-dismiss {
+  flex-shrink: 0; background: none; border: none; cursor: pointer;
+  font-size: 16px; color: #558b2f; padding: 2px 4px; line-height: 1;
+  opacity: 0.6; align-self: flex-start;
+}
+.sedum-dismiss:hover { opacity: 1; }
+.sedum-ordered-row {
+  display: flex; align-items: center; gap: 7px; margin-top: 6px;
+}
+.sedum-ordered-row label {
+  font-size: 12px; color: #2e7d32; cursor: pointer; user-select: none; display: flex; align-items: center; gap: 6px;
+}
+.sedum-ordered-row input[type="checkbox"] { width: 14px; height: 14px; cursor: pointer; accent-color: #2d5a27; }
+.sedum-ordered-by { font-size: 11px; color: #558b2f; font-family: var(--mono); margin-left: 4px; }
+
+/* ── MAIN ── */
+.main-content { padding: 16px 24px 48px; }
+.empty-state { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 72px 0; text-align: center; }
+.empty-icon  { font-size: 40px; opacity: 0.2; }
+.empty-title { font-size: 15px; font-weight: 500; color: var(--text-muted); }
+.empty-hint  { font-size: 12px; color: var(--text-light); font-family: var(--mono); }
+
+/* ── SECTION ── */
+.section { margin-bottom: 16px; }
+.section-header {
+  display: flex; align-items: center; gap: 10px; padding: 9px 14px;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 8px 8px 0 0; cursor: pointer; user-select: none; transition: background 0.15s;
+}
+.section-header:hover     { background: var(--surface2); }
+.section-header.collapsed { border-radius: 8px; }
+.section-title { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
+.section-count { font-size: 11px; font-family: var(--mono); background: var(--surface2); border: 1px solid var(--border); border-radius: 10px; padding: 1px 8px; color: var(--text-muted); }
+.section-header.overdue .section-title { color: var(--red); }
+.section-header.overdue .section-count { background: var(--red-light); border-color: #e0b0b0; color: var(--red); }
+.section-header.nodated .section-title  { color: var(--text-muted); }
+.section-toggle { margin-left: auto; font-size: 11px; color: var(--text-muted); transition: transform 0.2s; }
+.section-toggle.open { transform: rotate(180deg); }
+.section-body { border: 1px solid var(--border); border-top: none; border-radius: 0 0 8px 8px; overflow: hidden; background: var(--surface); }
+
+/* ── TABLE ── */
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+thead tr { background: var(--green); color: #fff; }
+th {
+  padding: 8px 12px; text-align: left; font-size: 10px; font-weight: 500;
+  letter-spacing: 0.07em; text-transform: uppercase; white-space: nowrap;
+}
+th.sortable { cursor: pointer; }
+th.sortable:hover { background: var(--green-mid); }
+th.sortable::after { content: ' ⇅'; opacity: 0.4; font-size: 9px; }
+th.sort-asc::after  { content: ' ↑'; opacity: 1; }
+th.sort-desc::after { content: ' ↓'; opacity: 1; }
+
+tr.job-row { border-bottom: 1px solid var(--border); cursor: pointer; transition: background 0.1s; }
+tr.job-row:hover    { filter: brightness(0.96); }
+tr.job-row:last-of-type { border-bottom: none; }
+td { padding: 8px 12px; vertical-align: middle; }
+
+/* Status — !important so they always win */
+tr.job-row.dispatched           { background: var(--dispatched-bg) !important; opacity: 0.6; border-left: 3px solid #aaa !important; }
+tr.job-row.dispatched .td-name  { text-decoration: line-through; color: var(--text-muted); }
+tr.job-row.dispatch-ready       { background: var(--dispatch-bg)  !important; border-left: 3px solid var(--dispatch-border) !important; }
+tr.job-row.job-started          { background: var(--started-bg)   !important; border-left: 3px solid var(--started-border) !important; }
+/* Type — no !important, sit below status */
+tr.job-row.type-delivery        { background: var(--type-delivery-bg);   border-left: 3px solid var(--type-delivery-bdr); }
+tr.job-row.type-collection      { background: var(--type-collection-bg); border-left: 3px solid var(--type-collection-bdr); }
+tr.job-row.type-amendment       { background: var(--type-amendment-bg);  border-left: 3px solid var(--type-amendment-bdr); }
+tr.job-row.type-visit           { background: var(--type-visit-bg);      border-left: 3px solid var(--type-visit-bdr); }
+tr.job-row.expanded             { filter: brightness(0.94); }
+tr.job-row.hidden-dispatched    { display: none; }
+tr.job-detail.hidden-dispatched { display: none; }
+
+.td-id    { font-family: var(--mono); font-size: 11px; color: var(--text-muted); white-space: nowrap; }
+.td-name  { font-weight: 500; }
+.td-model { white-space: nowrap; font-family: var(--mono); font-size: 11.5px; }
+.td-expand { text-align: center; color: var(--text-muted); font-size: 11px; width: 28px; }
+.expand-icon { transition: transform 0.2s; display: inline-block; }
+tr.job-row.expanded .expand-icon { transform: rotate(180deg); }
+
+.type-badge {
+  display: inline-block; font-size: 9.5px; font-family: var(--mono); font-weight: 500;
+  border-radius: 3px; padding: 1px 5px; vertical-align: middle; margin-left: 5px;
+  text-transform: uppercase; letter-spacing: 0.04em;
+}
+.type-badge.install    { background: #e8f0e6; color: var(--green-mid); border: 1px solid #c0d9bb; }
+.type-badge.delivery   { background: var(--type-delivery-bg);   color: #1a5a8a; border: 1px solid var(--type-delivery-bdr); }
+.type-badge.collection { background: var(--type-collection-bg); color: #6a2a9a; border: 1px solid var(--type-collection-bdr); }
+.type-badge.amendment  { background: var(--type-amendment-bg);  color: #9a5c00; border: 1px solid var(--type-amendment-bdr); font-weight: 700; }
+.type-badge.visit      { background: var(--type-visit-bg);      color: #006660; border: 1px solid var(--type-visit-bdr);     font-weight: 700; }
+
+.date-pill { display: inline-block; padding: 2px 8px; border-radius: 4px; font-family: var(--mono); font-size: 11px; font-weight: 500; white-space: nowrap; }
+.date-pill.upcoming { background: var(--green-light); color: var(--green);      border: 1px solid #c0d9bb; }
+.date-pill.soon     { background: var(--amber-light); color: var(--amber);      border: 1px solid #e8d0a0; }
+.date-pill.overdue  { background: var(--red-light);   color: var(--red);        border: 1px solid #e0b0b0; }
+.date-pill.none     { background: var(--surface2);    color: var(--text-light); border: 1px solid var(--border); }
+
+.td-planned { font-family: var(--mono); font-size: 11px; color: var(--text-muted); white-space: nowrap; }
+.td-planned .set { color: var(--text); }
+
+.progress-wrap { display: flex; align-items: center; gap: 6px; }
+.prog-count { font-family: var(--mono); font-size: 11px; color: var(--text-muted); }
+.prog-count.complete { color: var(--green); font-weight: 600; }
+
+.dispatched-badge {
+  display: inline-block; font-size: 10px; font-family: var(--mono); font-weight: 500;
+  background: #ddd; color: var(--text-muted); border: 1px solid var(--border-dark);
+  border-radius: 3px; padding: 1px 5px; margin-left: 5px; vertical-align: middle;
+}
+
+/* ── DETAIL ROW ── */
+tr.job-detail td { padding: 0; background: #f5f8f4; border-bottom: 2px solid var(--green-mid); }
+.detail-panel { padding: 16px 18px 12px; }
+.detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-bottom: 14px; }
+@media (max-width: 700px) { .detail-grid { grid-template-columns: 1fr; } }
+
+.detail-section-label {
+  font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em;
+  color: var(--text-muted); margin-bottom: 8px; display: flex; align-items: center; gap: 8px;
+}
+.detail-section-label::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+
+.planned-dates { display: flex; flex-direction: column; gap: 7px; }
+.date-field { display: flex; align-items: center; gap: 8px; }
+.date-field label { font-size: 12px; color: var(--text-muted); min-width: 110px; white-space: nowrap; }
+.date-input {
+  background: var(--surface); border: 1.5px solid var(--border); border-radius: 5px;
+  padding: 5px 9px; font-family: var(--mono); font-size: 12px; color: var(--text);
+  outline: none; transition: border-color 0.2s; width: 148px;
+}
+.date-input:focus { border-color: var(--green-mid); }
+.lid-required { font-size: 12px; font-family: var(--mono); color: var(--amber); background: var(--amber-light); border: 1px solid #e8d0a0; border-radius: 5px; padding: 5px 10px; }
+.lid-required.unset { color: var(--text-light); background: var(--surface2); border-color: var(--border); }
+
+.tasks-section { margin-bottom: 12px; }
+.tasks-grid { display: flex; flex-direction: column; gap: 8px; }
+.start-date-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.start-date-label { font-size: 12px; font-weight: 500; color: var(--text-muted); min-width: 120px; white-space: nowrap; }
+.start-date-input {
+  background: var(--surface); border: 1.5px solid var(--border); border-radius: 5px;
+  padding: 5px 9px; font-family: var(--mono); font-size: 12px; color: var(--text);
+  outline: none; transition: border-color 0.2s; width: 148px;
+}
+.start-date-input:focus { border-color: var(--green-mid); }
+.start-date-input.set   { border-color: var(--green-accent); background: var(--green-light); }
+.start-clear-btn { font-size: 11px; color: var(--text-light); cursor: pointer; border: none; background: none; padding: 0 4px; }
+.start-clear-btn:hover { color: var(--red); }
+
+.tick-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.task-btn {
+  padding: 5px 13px; border-radius: 5px; font-family: var(--sans); font-size: 12px; font-weight: 500;
+  cursor: pointer; border: 1.5px solid var(--border-dark); background: var(--surface); color: var(--text-muted);
+  transition: all 0.15s; user-select: none; white-space: nowrap;
+}
+.task-btn:hover { border-color: var(--green-mid); color: var(--green); background: var(--green-light); }
+.task-btn.done  { background: var(--green); color: #fff; border-color: var(--green); }
+.task-btn.done:hover { background: var(--green-mid); border-color: var(--green-mid); }
+.task-btn.dispatch-btn.done { background: var(--green-mid); border-color: var(--green-mid); }
+
+.tick-date { font-family: var(--mono); font-size: 11.5px; color: var(--text-muted); }
+.tick-date.set { color: var(--green-mid); font-weight: 500; }
+
+/* Notes */
+.notes-wrap { margin-bottom: 14px; }
+.notes-field {
+  width: 100%; min-height: 60px; padding: 8px 10px; font-family: var(--sans); font-size: 12px;
+  color: var(--text); background: var(--surface); border: 1.5px solid var(--border);
+  border-radius: 5px; outline: none; transition: border-color 0.2s; resize: vertical; line-height: 1.5;
+}
+.notes-field:focus  { border-color: var(--green-mid); }
+.notes-field.amber  { border-color: var(--type-amendment-bdr); background: #fffaf4; }
+.notes-field.teal   { border-color: var(--type-visit-bdr);     background: #f4fffe; }
+
+/* Dispatch section */
+.dispatch-section { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); display: flex; align-items: center; gap: 12px; }
+.btn-dispatched {
+  padding: 5px 13px; border-radius: 5px; font-family: var(--sans); font-size: 12px; font-weight: 500;
+  cursor: pointer; border: 1.5px solid var(--border-dark); background: var(--surface2); color: var(--text-muted);
+  transition: all 0.15s; user-select: none;
+}
+.btn-dispatched.done { background: #666; color: #fff; border-color: #666; }
+.btn-dispatched.done:hover { background: #444; border-color: #444; }
+.dispatch-hint { font-size: 11px; color: var(--text-light); font-family: var(--mono); }
+
+.detail-meta { display: flex; flex-wrap: wrap; gap: 5px; align-items: flex-start; }
+.meta-chip { font-size: 11px; padding: 2px 8px; border-radius: 4px; background: var(--green-light); color: var(--green); border: 1px solid #c0d9bb; font-family: var(--mono); }
+.meta-chip.info   { background: var(--blue-light); color: var(--blue); border-color: #c0cce0; font-family: var(--sans); font-weight: 400; max-width: 320px; line-height: 1.4; }
+.meta-chip.colour { background: var(--surface2); color: var(--text); border-color: var(--border-dark); }
+.meta-chip.value       { background: var(--amber-light); color: var(--amber); border-color: #e8d0a0; }
+.meta-chip.install-val { background: #e8f4fd; color: #1565c0; border-color: #b3d4f0; }
+.meta-address { font-size: 11px; color: var(--text-muted); margin-top: 6px; font-family: var(--sans); }
+
+.save-status-row { display: flex; align-items: center; justify-content: space-between; margin-top: 8px; }
+.save-status { font-family: var(--mono); font-size: 11px; padding: 2px 8px; border-radius: 4px; }
+.save-status.saved   { color: var(--green); background: var(--green-light); }
+.save-status.saving  { color: var(--amber); background: var(--amber-light); }
+.save-status.error   { color: var(--red);   background: var(--red-light); }
+.save-status.idle    { color: var(--text-light); }
+
+/* ── WEEK FILTER ── */
+.week-nav { display: flex; align-items: center; gap: 4px; }
+.btn-week-nav {
+  font-family: var(--sans); font-size: 13px; font-weight: 600; cursor: pointer;
+  border: 1.5px solid var(--border-dark); border-radius: 6px; padding: 4px 9px;
+  background: var(--surface2); color: var(--text-muted); line-height: 1;
+  transition: all 0.15s;
+}
+.btn-week-nav:hover { border-color: var(--green-mid); color: var(--green); }
+.week-input {
+  background: var(--bg); border: 1.5px solid var(--green-mid); border-radius: 6px;
+  padding: 5px 8px; font-family: var(--mono); font-size: 12px; color: var(--text);
+  outline: none; cursor: pointer; width: 138px;
+}
+.week-label {
+  font-size: 12px; font-family: var(--mono); color: var(--green);
+  background: var(--green-light); border: 1px solid #c0d9bb;
+  border-radius: 5px; padding: 3px 8px; white-space: nowrap;
+}
+.btn-week-clear {
+  font-family: var(--sans); font-size: 11px; font-weight: 500; cursor: pointer;
+  border: 1.5px solid var(--border-dark); border-radius: 6px; padding: 4px 8px;
+  background: var(--surface2); color: var(--text-muted); transition: all 0.15s;
+}
+.btn-week-clear:hover { border-color: var(--red); color: var(--red); }
+.btn-sm.week-active { background: var(--green-light); color: var(--green); border-color: var(--green-mid); font-weight: 600; }
+
+/* ── FOOTER ── */
+footer {
+  padding: 10px 24px; border-top: 1px solid var(--border);
+  font-size: 11px; color: var(--text-light); font-family: var(--mono);
+  display: flex; justify-content: space-between; flex-wrap: wrap; gap: 6px;
+}
+
+/* ── CHANGE LOG ── */
+.changes-badge {
+  display: none;
+  background: #c0410a; color: #fff; border: none; border-radius: 5px;
+  padding: 5px 12px; font-family: var(--sans); font-size: 12px; font-weight: 700;
+  cursor: pointer; letter-spacing: 0.02em;
+  animation: badge-pulse 2.5s ease-in-out infinite;
+}
+@keyframes badge-pulse { 0%,100% { box-shadow: 0 0 0 0 rgba(192,65,10,0.5); } 50% { box-shadow: 0 0 0 6px rgba(192,65,10,0); } }
+.changes-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.35); z-index: 999; }
+.changes-panel {
+  position: fixed; top: 0; right: -400px; width: 380px; height: 100vh;
+  background: var(--surface); box-shadow: -4px 0 24px rgba(0,0,0,0.18);
+  z-index: 1000; display: flex; flex-direction: column; transition: right 0.28s ease;
+}
+.changes-panel.open { right: 0; }
+.changes-panel-hdr {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 16px; background: #c0410a; color: #fff; flex-shrink: 0;
+}
+.changes-panel-hdr h2 { font-size: 14px; font-weight: 700; margin: 0; }
+.changes-panel-hdr button { background: none; border: none; color: #fff; font-size: 20px; cursor: pointer; line-height: 1; padding: 0 2px; }
+.changes-panel-body { flex: 1; overflow-y: auto; padding: 12px; }
+.change-job { border: 1px solid var(--border); border-radius: 7px; margin-bottom: 10px; overflow: hidden; }
+.change-job-hdr { background: #fff8f5; padding: 8px 12px; border-bottom: 1px solid var(--border); display: flex; align-items: baseline; gap: 6px; }
+.change-job-name { font-size: 13px; font-weight: 600; color: var(--text); }
+.change-job-id { font-size: 10px; color: var(--text-muted); font-family: var(--mono); }
+.change-row { padding: 6px 12px; display: grid; grid-template-columns: 82px 1fr 16px 1fr; align-items: center; gap: 6px; font-size: 12px; border-bottom: 1px solid #f4f4f4; }
+.change-row:last-of-type { border-bottom: none; }
+.change-field { font-weight: 600; color: var(--text-muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.03em; }
+.change-from { color: #aaa; text-decoration: line-through; word-break: break-word; }
+.change-arrow { color: #ccc; text-align: center; }
+.change-to { color: #c0410a; font-weight: 700; word-break: break-word; }
+.change-job-footer { padding: 6px 12px 8px; display: flex; justify-content: space-between; align-items: center; background: #fafafa; gap: 8px; }
+.btn-review { background: none; border: 1.5px solid var(--green-mid); color: var(--green-mid); border-radius: 4px; padding: 3px 11px; font-size: 11px; font-weight: 600; cursor: pointer; font-family: var(--sans); }
+.btn-review:hover { background: var(--green-mid); color: #fff; }
+.btn-mark-reviewed { background: #2d5a27; color: #fff; border: none; border-radius: 4px; padding: 3px 11px; font-size: 11px; font-weight: 600; cursor: pointer; font-family: var(--sans); }
+.btn-mark-reviewed:hover { background: #1e3e1a; }
+.changes-panel-ftr { padding: 12px 14px; border-top: 1px solid var(--border); flex-shrink: 0; }
+.btn-dismiss-all { width: 100%; background: #2d5a27; color: #fff; border: none; border-radius: 6px; padding: 9px; font-size: 13px; font-weight: 600; cursor: pointer; font-family: var(--sans); }
+.btn-dismiss-all:hover { background: #1e3e1a; }
+tr.job-changed td:first-child { border-left: 4px solid #c0410a !important; }
+
+/* ── VALUE REPORT MODAL ── */
+.vr-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.45); z-index: 1100; align-items: center; justify-content: center; }
+.vr-overlay.open { display: flex; }
+.vr-modal {
+  background: var(--surface); border-radius: 10px; box-shadow: 0 8px 40px rgba(0,0,0,0.25);
+  width: 780px; max-width: 96vw; max-height: 88vh; display: flex; flex-direction: column;
+}
+.vr-hdr { background: #2d5a27; color: #fff; border-radius: 10px 10px 0 0; padding: 14px 18px; display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; }
+.vr-hdr h2 { font-size: 15px; font-weight: 700; margin: 0; }
+.vr-hdr button { background: none; border: none; color: #fff; font-size: 22px; cursor: pointer; line-height: 1; padding: 0 4px; opacity: 0.8; }
+.vr-hdr button:hover { opacity: 1; }
+.vr-summary { display: flex; gap: 10px; padding: 14px 16px 0; flex-shrink: 0; }
+.vr-card { flex: 1; border-radius: 7px; padding: 10px 14px; border: 1.5px solid var(--border); }
+.vr-card-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em; color: var(--text-muted); margin-bottom: 4px; }
+.vr-card-val { font-size: 20px; font-weight: 700; color: var(--text); font-family: var(--mono); }
+.vr-card-sub { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+.vr-card.complete { border-color: #2d5a27; background: #f0f7ee; }
+.vr-card.complete .vr-card-val { color: #2d5a27; }
+.vr-body { flex: 1; overflow-y: auto; padding: 14px 16px; }
+.vr-section-hdr { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em; color: var(--text-muted); padding: 8px 0 6px; border-bottom: 1px solid var(--border); margin-bottom: 6px; display: flex; justify-content: space-between; }
+.vr-section-hdr span:last-child { color: var(--text); font-family: var(--mono); }
+.vr-job { display: grid; grid-template-columns: 52px 1fr 90px 90px 80px; gap: 6px; align-items: center; padding: 5px 4px; border-bottom: 1px solid #f4f4f4; font-size: 12px; }
+.vr-job:last-child { border-bottom: none; }
+.vr-job-id { font-family: var(--mono); color: var(--text-muted); font-size: 11px; }
+.vr-job-name { font-weight: 500; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.vr-job-model { color: var(--text-muted); font-size: 11px; }
+.vr-job-date { color: var(--text-muted); font-size: 11px; font-family: var(--mono); }
+.vr-job-val { text-align: right; font-family: var(--mono); font-weight: 600; }
+.vr-job-dates { font-size: 10px; color: var(--text-muted); font-weight: 400; font-family: var(--mono); }
+.vr-pill { display: inline-block; font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 10px; letter-spacing: 0.04em; }
+.vr-pill.dispatched { background: #2d5a27; color: #fff; }
+.vr-pill.ready     { background: #c6e6c0; color: #1e3e1a; }
+.vr-pill.progress  { background: #e8f0e8; color: #2d5a27; }
+.vr-ftr { padding: 10px 16px; border-top: 1px solid var(--border); display: flex; justify-content: flex-end; flex-shrink: 0; }
+.btn-vr-close { background: #2d5a27; color: #fff; border: none; border-radius: 6px; padding: 7px 20px; font-size: 13px; font-weight: 600; cursor: pointer; font-family: var(--sans); }
+
+/* ── VIEW TABS ── */
+.view-tabs { display: flex; align-items: center; gap: 4px; }
+.view-tab {
+  padding: 5px 14px; font-size: 12px; font-weight: 600; cursor: pointer;
+  border-radius: 5px; border: 1.5px solid rgba(255,255,255,0.25);
+  background: transparent; color: rgba(255,255,255,0.6);
+  font-family: var(--sans); letter-spacing: 0.04em; text-transform: uppercase;
+  transition: all 0.15s;
+}
+.view-tab:hover { border-color: rgba(255,255,255,0.5); color: rgba(255,255,255,0.85); }
+.view-tab.active { background: rgba(255,255,255,0.18); border-color: rgba(255,255,255,0.55); color: #fff; }
+
+/* ── LABEL VIEW ── */
+#labelsView { display: none; }
+#labelsView .lbl-inner { max-width: 860px; margin: 0 auto; padding: 20px 24px 48px; }
+#labelsView .lbl-card { background: white; border: 1px solid var(--border); border-radius: 8px; padding: 20px; margin-bottom: 14px; }
+#labelsView .lbl-section-label { font-size: 10px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-muted); margin-bottom: 10px; }
+#labelsView .lbl-form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+#labelsView .lbl-field label { font-size: 12px; color: var(--text-muted); display: block; margin-bottom: 4px; font-weight: 600; }
+#labelsView .lbl-field input, #labelsView .lbl-field select {
+  width: 100%; padding: 8px 10px; border: 1.5px solid var(--border); border-radius: 6px;
+  font-size: 14px; font-family: var(--sans); background: white; color: var(--text);
+  appearance: none; -webkit-appearance: none; outline: none;
+}
+#labelsView .lbl-field select {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%23666' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 10px center; padding-right: 28px;
+}
+#labelsView .lbl-field input:focus, #labelsView .lbl-field select:focus { border-color: var(--green-mid); }
+#labelsView .lbl-sub-input { margin-top: 6px; display: none; }
+#labelsView .lbl-sub-input.show { display: block; }
+#labelsView .lbl-sub-input input { width: 100%; padding: 7px 10px; border: 1.5px solid var(--border); border-radius: 6px; font-size: 13px; font-family: var(--sans); background: var(--surface2); outline: none; }
+#labelsView .lbl-sub-input input:focus { border-color: var(--green-mid); }
+.lbl-comp-row { display: flex; flex-wrap: wrap; gap: 7px; }
+.lbl-comp-btn {
+  padding: 6px 16px; font-size: 13px; cursor: pointer; border-radius: 5px;
+  border: 1.5px solid var(--border-dark); background: white; color: var(--text-muted);
+  font-family: var(--sans); font-weight: 700; letter-spacing: 0.03em; transition: all 0.1s;
+}
+.lbl-comp-btn.on { background: var(--green); border-color: var(--green); color: white; }
+.lbl-comp-btn:hover:not(.on) { border-color: var(--border-dark); background: var(--surface2); }
+.lbl-add-row { display: flex; gap: 8px; margin-top: 10px; }
+.lbl-add-row input { flex: 1; padding: 7px 10px; border: 1.5px solid var(--border); border-radius: 6px; font-size: 13px; font-family: var(--sans); outline: none; }
+.lbl-add-row input:focus { border-color: var(--green-mid); }
+.lbl-add-row button { padding: 7px 14px; border: 1.5px solid var(--border-dark); border-radius: 6px; background: white; cursor: pointer; font-size: 13px; font-family: var(--sans); font-weight: 700; }
+.lbl-add-row button:hover { background: var(--surface2); }
+.lbl-preview-bg { background: var(--border); border-radius: 6px; padding: 12px; }
+.lbl-preview-sheet {
+  background: white; border: 1px solid #aaa;
+  width: 100%; aspect-ratio: 297 / 210;
+  display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; padding: 2.38% 3.03%; gap: 0;
+}
+.lbl-empty-cell { border: 1px dashed var(--border); display: flex; align-items: center; justify-content: center; color: var(--text-light); font-size: 9px; letter-spacing: 0.08em; text-transform: uppercase; }
+.shed-label { border: 2px solid #111; font-family: Arial, sans-serif; background: white; color: #111; display: flex; flex-direction: column; overflow: hidden; }
+.lbl-top { background: #111; color: white; padding: 3% 4% 2.5%; display: flex; align-items: baseline; gap: 5%; flex-shrink: 0; }
+.lbl-jobnum { font-size: clamp(11px,2.8vw,26px); font-weight: 700; letter-spacing: 0.03em; opacity: 0.75; }
+.lbl-code   { font-size: clamp(13px,3.2vw,30px); font-weight: 900; letter-spacing: 0.06em; }
+.lbl-mid { padding: 2.5% 4% 2%; flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 3%; border-bottom: 2px solid #111; }
+.lbl-customer { font-size: clamp(12px,3vw,28px); font-weight: 900; letter-spacing: 0.01em; text-transform: uppercase; }
+.lbl-colour   { font-size: clamp(8px,1.8vw,17px); color: #666; letter-spacing: 0.07em; text-transform: uppercase; font-weight: 600; }
+.lbl-bottom { padding: 2% 4%; display: flex; align-items: center; flex-shrink: 0; }
+.lbl-comp { font-size: clamp(16px,4.5vw,42px); font-weight: 900; letter-spacing: 0.02em; text-transform: uppercase; line-height: 1; }
+.lbl-nav-row { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.lbl-nav-btn { padding: 4px 12px; font-size: 12px; cursor: pointer; border-radius: 5px; border: 1.5px solid var(--border-dark); background: white; font-family: var(--sans); }
+.lbl-nav-btn:disabled { opacity: 0.35; cursor: default; }
+.lbl-count { font-size: 12px; color: var(--text-muted); margin-bottom: 8px; }
+.lbl-print-btn { width: 100%; padding: 12px; font-size: 15px; cursor: pointer; background: var(--green); border: none; color: white; border-radius: 6px; font-family: var(--sans); font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; margin-top: 4px; }
+.lbl-print-btn:hover { background: var(--green-mid); }
+.lbl-print-btn:disabled { background: var(--border-dark); color: #999; cursor: default; }
+.lbl-print-tip { font-size: 11px; color: var(--text-light); text-align: center; margin-top: 6px; }
+.lbl-clear-btn { width: 100%; padding: 9px; font-size: 13px; cursor: pointer; margin-top: 8px; background: white; border: 1.5px solid var(--border); color: var(--text-muted); border-radius: 6px; font-family: var(--sans); }
+.lbl-clear-btn:hover { background: var(--surface2); }
+.btn-make-labels { font-family: var(--sans); font-size: 11px; font-weight: 600; cursor: pointer; border: 1.5px solid var(--border-dark); border-radius: 5px; padding: 3px 10px; background: var(--surface2); color: var(--text-muted); transition: all 0.15s; margin-left: auto; white-space: nowrap; }
+.btn-make-labels:hover { border-color: var(--green-mid); color: var(--green); }
+.btn-lbl-row { background: none; border: none; cursor: pointer; font-size: 14px; padding: 2px 3px; border-radius: 3px; opacity: 0.35; transition: opacity 0.15s; line-height: 1; }
+.btn-lbl-row:hover { opacity: 1; }
+
+/* ── PRINT ── */
+#printArea { display: none; }
+#lblPrintArea { display: none; }
+
+/* hide label-view elements during tracker print, and vice versa */
+body.lbl-view .load-panel,
+body.lbl-view .toolbar,
+body.lbl-view .legend,
+body.lbl-view .print-bar,
+body.lbl-view .main-content,
+body.lbl-view #printArea,
+body.lbl-view .skp-alert,
+body.lbl-view .lyt-alert,
+body.lbl-view .sedum-alert,
+body.lbl-view footer { display: none !important; }
+body.lbl-view #labelsView { display: block !important; }
+
+@media print {
+  @page { size: A3 portrait; margin: 15mm; }
+  @page :nth(1) { size: A3 landscape; }
+  #print-valuereport { page: landscape-report; }
+  @page landscape-report { size: A3 landscape; margin: 12mm; }
+  @page lbl-landscape { size: A4 landscape; margin: 8mm 11.5mm; }
+  /* Force all backgrounds and colours to print — without this browsers strip them */
+  * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+  header,.load-panel,.leave-panel,.toolbar,.legend,.print-bar,footer,.main-content,.sedum-alert,.lyt-alert,.skp-alert { display: none !important; }
+  #printArea { display: block !important; }
+  #labelsView, #lblPrintArea, .vr-overlay, .changes-overlay, .changes-panel { display: none !important; }
+  .print-section { display: none; }
+  .print-section.active { display: block; }
+  .print-header { margin-bottom: 16px; border-bottom: 3px solid #2d5a27; padding-bottom: 10px; }
+  .print-header h1 { font-size: 24px; font-weight: 700; color: #2d5a27; }
+  .print-header p  { font-size: 15px; color: #555; margin-top: 3px; }
+  .print-table { width: 100%; border-collapse: collapse; font-size: 15px; font-family: Arial, sans-serif; margin-top: 12px; }
+  .print-table th { background: #2d5a27 !important; color: #fff !important; padding: 10px 12px; text-align: left; font-size: 14px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; border: 1px solid #1e3e1a; }
+  .print-table td { padding: 9px 11px; border: 1px solid #999; vertical-align: middle; color: #111; background: #fff; }
+  /* Empty checkbox — thick black border so it prints clearly */
+  .print-cb-empty   { display: inline-block; width: 22px; height: 22px; border: 2.5px solid #111; border-radius: 2px; vertical-align: middle; }
+  /* Ticked checkbox — bold black tick, no background fill dependency */
+  .print-cb-checked { display: inline-block; width: 22px; height: 22px; border: 2.5px solid #111; border-radius: 2px; color: #111; font-weight: 900; font-size: 18px; text-align: center; line-height: 20px; vertical-align: middle; }
+  .print-group-hdr td { background: #d8ebd4 !important; font-weight: 700; font-size: 12px; color: #1e3e1a; padding: 6px 11px; border: 1px solid #999; }
+  .print-group-hdr.started td { background: #fce4ec !important; color: #880e4f; }
+  .print-sign-box { width: 56px; height: 16px; border: 1.5px solid #555; display: inline-block; }
+
+  /* ── VALUE REPORT PRINT ── */
+  .vr-print-hdr { margin-bottom: 14px; border-bottom: 3px solid #2d5a27; padding-bottom: 10px; display: flex; justify-content: space-between; align-items: flex-end; }
+  .vr-print-hdr h1 { font-size: 20px; font-weight: 700; color: #2d5a27; margin: 0; }
+  .vr-print-hdr p  { font-size: 12px; color: #666; margin: 0; }
+  .vr-print-cards { display: flex; gap: 12px; margin-bottom: 16px; }
+  .vr-print-card  { flex: 1; border: 1.5px solid #ccc; border-radius: 6px; padding: 8px 12px; }
+  .vr-print-card.complete { border-color: #2d5a27; background: #f0f7ee !important; }
+  .vr-print-card-label { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em; color: #666; margin-bottom: 3px; }
+  .vr-print-card-val { font-size: 18px; font-weight: 700; color: #111; }
+  .vr-print-card.complete .vr-print-card-val { color: #2d5a27; }
+  .vr-print-card-sub { font-size: 10px; color: #888; }
+  .vr-print-section-hdr { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em; color: #444; padding: 6px 0 4px; border-bottom: 1.5px solid #2d5a27; margin-bottom: 4px; display: flex; justify-content: space-between; }
+  .vr-print-table { width: 100%; border-collapse: collapse; font-size: 11px; font-family: Arial, sans-serif; margin-bottom: 14px; }
+  .vr-print-table th { background: #2d5a27 !important; color: #fff !important; padding: 5px 8px; text-align: left; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; border: 1px solid #1e3e1a; }
+  .vr-print-table td { padding: 4px 8px; border: 1px solid #ccc; color: #111; background: #fff; }
+  .vr-print-table tr:nth-child(even) td { background: #f8f8f8 !important; }
+  .vr-print-table td.val { text-align: right; font-weight: 600; }
+  .vr-print-table td.status-d { color: #2d5a27; font-weight: 700; }
+  .vr-print-table td.status-r { color: #1e6e18; }
+  .vr-print-table td.status-p { color: #555; }
+
+  /* ── LABEL PRINT — when lbl_doPrint() adds .printing-labels to body ── */
+  html { margin: 0 !important; padding: 0 !important; }
+  body.printing-labels { page: lbl-landscape; background: white !important; margin: 0 !important; padding: 0 !important; min-height: 0 !important; }
+  body.printing-labels #labelsView { display: none !important; }
+  body.printing-labels .print-section { display: none !important; }
+  body.printing-labels #printArea { display: none !important; }
+  body.printing-labels #lblPrintArea {
+    page: lbl-landscape;
+    display: grid !important;
+    grid-template-columns: 137mm 137mm;
+    grid-template-rows: 97mm 97mm;
+    gap: 0;
+  }
+  .lbl-sheet-break { page-break-before: always; display: contents; }
+  .lbl-sheet-first { display: contents; }
+  body.printing-labels #lblPrintArea .shed-label {
+    box-sizing: border-box;
+    border: 1.5pt solid #000; font-family: Arial, sans-serif;
+    background: white; color: #000;
+    display: flex; flex-direction: column; overflow: hidden;
+    width: 137mm; height: 97mm;
+  }
+  body.printing-labels #lblPrintArea .lbl-top { background: #000; color: white; padding: 4mm 7mm 3mm; display: flex; align-items: baseline; gap: 5mm; flex-shrink: 0; }
+  body.printing-labels #lblPrintArea .lbl-jobnum { font-size: 22pt; font-weight: 700; letter-spacing: 0.03em; opacity: 0.75; }
+  body.printing-labels #lblPrintArea .lbl-code   { font-size: 26pt; font-weight: 900; letter-spacing: 0.06em; }
+  body.printing-labels #lblPrintArea .lbl-mid { padding: 3mm 7mm 2mm; flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 2mm; border-bottom: 1.5pt solid #000; }
+  body.printing-labels #lblPrintArea .lbl-customer { font-size: 24pt; font-weight: 900; letter-spacing: 0.01em; text-transform: uppercase; }
+  body.printing-labels #lblPrintArea .lbl-colour   { font-size: 13pt; color: #555; letter-spacing: 0.07em; text-transform: uppercase; font-weight: 600; }
+  body.printing-labels #lblPrintArea .lbl-bottom { padding: 3mm 7mm; display: flex; align-items: center; flex-shrink: 0; }
+  body.printing-labels #lblPrintArea .lbl-comp { font-size: 42pt; font-weight: 900; letter-spacing: 0.02em; text-transform: uppercase; line-height: 1; }
+  body.printing-labels #lblPrintArea .lbl-empty-print-cell { box-sizing: border-box; width: 137mm; height: 97mm; background: white !important; }
+}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo-area">
+    <span class="logo-main">THE BIKE SHED CO.</span>
+    <span class="logo-sub">Live Jobs Tracker</span>
+  </div>
+  <div class="view-tabs">
+    <button class="view-tab active" id="tabJobs"   onclick="switchView('jobs')">Jobs</button>
+    <button class="view-tab"        id="tabLabels" onclick="switchView('labels')">Labels</button>
+  </div>
+  <div class="status-bar">
+    <div class="status-dot loading" id="statusDot"></div>
+    <span id="statusText">Loading…</span>
+    <span id="savingIndicator" style="display:none;color:var(--amber);font-weight:600;margin-left:10px">⏳ Saving…</span>
+  </div>
+</header>
+
+<div class="load-panel" id="loadPanel">
+  <div class="file-zone" id="fileZone" onclick="document.getElementById('fileInput').click()">
+    <span style="font-size:20px">📂</span>
+    <div class="file-zone-text">
+      <span class="file-zone-label" id="fileLabel">Select REVCAP file</span>
+      <span class="file-zone-hint">REVCAP_Oct25.xlsm — drop here or click to browse</span>
+    </div>
+  </div>
+  <input type="file" id="fileInput" accept=".xlsx,.xlsm,.xls">
+  <button class="btn-load" id="btnLoad" onclick="loadFile()" disabled>↻ Load Jobs</button>
+  <div class="load-hint">
+    💡 Find REVCAP in your OneDrive folder on this PC.<br>
+    Progress &amp; dates save automatically — shared with your team.
+  </div>
+</div>
+
+<div class="leave-panel" id="leavePanel">
+  <span class="leave-panel-label">Team<br>Leave</span>
+  <div class="leave-days" id="leaveDays"><span class="leave-status">Loading…</span></div>
+</div>
+
+<div class="toolbar" id="toolbar" style="display:none">
+  <div class="filter-group">
+    <span class="filter-label">Search</span>
+    <input type="text" id="searchInput" class="filter-input" placeholder="Name, model, colour…" oninput="render()">
+  </div>
+  <div class="filter-group">
+    <span class="filter-label">Model</span>
+    <select id="modelFilter" class="filter-select" onchange="render()">
+      <option value="">All models</option>
+    </select>
+  </div>
+  <div class="filter-group">
+    <span class="filter-label">Type</span>
+    <select id="typeFilter" class="filter-select" onchange="render()">
+      <option value="">All types</option>
+      <option value="Install">Install</option>
+      <option value="Delivery">Delivery</option>
+      <option value="Collection">Collection</option>
+      <option value="Amendment">Amendment</option>
+      <option value="Site Visit">Site Visit</option>
+    </select>
+  </div>
+  <div class="toolbar-sep"></div>
+  <button class="btn-sm" id="btnShowDispatched" onclick="toggleShowDispatched()">Show dispatched</button>
+  <button class="btn-sm" id="btnHideSiteVisits" onclick="toggleHideSiteVisits()">Hide site visits</button>
+  <div class="toolbar-sep"></div>
+  <button class="btn-sm" id="btnThisWeek" onclick="setThisWeek()">📅 This week</button>
+  <div class="week-nav" id="weekNav" style="display:none">
+    <button class="btn-week-nav" onclick="shiftWeek(-1)" title="Previous week">◀</button>
+    <input type="week" id="weekInput" class="week-input" onchange="onWeekInputChange()" title="Pick a week">
+    <button class="btn-week-nav" onclick="shiftWeek(1)" title="Next week">▶</button>
+    <span class="week-label" id="weekLabel"></span>
+    <button class="btn-week-clear" onclick="clearWeekFilter()">✕ All weeks</button>
+  </div>
+  <button class="changes-badge" id="btnChanges" onclick="showChangesPanel()">⚠ <span id="changesCount">0</span> changes detected</button>
+  <div class="toolbar-right">
+    <button class="btn-sm" onclick="showValueReport()" title="Value of work completed since April 2025">📊 Value report</button>
+    <button class="btn-sm" id="btnRoutePlanner" onclick="openRoutePlanner()" title="Open Route Planner" style="display:none">🗺 Route Planner</button>
+    <button class="btn-sm" id="btnRefresh" onclick="loadFromHubSpot(true)" title="Reload jobs from HubSpot" style="display:none">↻ Refresh</button>
+    <span class="count-badge" id="countBadge">—</span>
+  </div>
+</div>
+
+<div class="legend" id="legend" style="display:none">
+  <div class="legend-group">
+    <span style="font-size:10px;color:var(--text-muted);font-weight:600;text-transform:uppercase;letter-spacing:0.05em">Status</span>
+    <span class="legend-item"><span class="ls started"></span>Started</span>
+    <span class="legend-item"><span class="ls dispatch"></span>Ready for dispatch</span>
+  </div>
+  <div class="legend-sep"></div>
+  <div class="legend-group">
+    <span style="font-size:10px;color:var(--text-muted);font-weight:600;text-transform:uppercase;letter-spacing:0.05em">Type</span>
+    <span class="legend-item"><span class="ls delivery"></span>Delivery</span>
+    <span class="legend-item"><span class="ls collection"></span>Collection</span>
+    <span class="legend-item"><span class="ls amendment"></span>Amendment</span>
+    <span class="legend-item"><span class="ls visit"></span>Site Visit</span>
+  </div>
+</div>
+
+<div class="print-bar" id="printBar" style="display:none">
+  <span class="print-bar-label">🖨 Print</span>
+  <button class="btn-print" id="btnPrintTG"   onclick="doPrint('tg')"          disabled>T&amp;G Cutting List</button>
+  <button class="btn-print" id="btnPrint50"   onclick="doPrint('50x50')"       disabled>50×50 Cutting List</button>
+  <button class="btn-print" id="btnPrintLids" onclick="doPrint('lids')"        disabled>Lid List</button>
+  <button class="btn-print" id="btnPrintAll"      onclick="doPrint('uncompleted')" disabled>All Uncompleted Jobs</button>
+  <button class="btn-print" id="btnPrintBasePrep" onclick="doPrint('baseprep')"    disabled>Odd Job List</button>
+  <span style="flex:1"></span>
+  <button class="btn-print" id="btnSyncRoute" onclick="syncToRoutePlanner()" disabled style="background:#e8f5e9;border-color:#a5d6a7;color:#1b5e20;">🗺 Sync to Route Planner</button>
+  <span id="routeSyncStatus" style="font-size:11px;margin-left:6px;"></span>
+</div>
+
+<div class="skp-alert" id="skpAlert">
+  <span class="skp-alert-icon">📐</span>
+  <div class="skp-alert-body">
+    <div class="skp-alert-title">SKP file needed — bespoke jobs awaiting SketchUp model</div>
+    <div class="skp-alert-jobs" id="skpAlertJobs"></div>
+  </div>
+  <button class="skp-dismiss" onclick="dismissSkpAlert()" title="Dismiss">✕</button>
+</div>
+
+<div class="lyt-alert" id="lytAlert">
+  <span class="lyt-alert-icon">📐</span>
+  <div class="lyt-alert-body">
+    <div class="lyt-alert-title">LYT file needed — SKP done but layout not started</div>
+    <div class="lyt-alert-jobs" id="lytAlertJobs"></div>
+  </div>
+  <button class="lyt-dismiss" onclick="dismissLytAlert()" title="Dismiss">✕</button>
+</div>
+
+<div class="sedum-alert" id="sedumAlert">
+  <span class="sedum-alert-icon">🌿</span>
+  <div class="sedum-alert-body">
+    <div class="sedum-alert-title">Buy Sedum — green roof jobs coming up</div>
+    <div class="sedum-alert-jobs" id="sedumAlertJobs"></div>
+    <div class="sedum-ordered-row">
+      <label>
+        <input type="checkbox" id="sedumOrderedChk" onchange="saveSedumOrdered(this.checked)">
+        Sedum ordered
+      </label>
+      <span class="sedum-ordered-by" id="sedumOrderedBy"></span>
+    </div>
+  </div>
+  <button class="sedum-dismiss" onclick="document.getElementById('sedumAlert').classList.remove('visible')" title="Dismiss">✕</button>
+</div>
+
+<div class="main-content" id="mainContent">
+  <div class="empty-state">
+    <div class="empty-icon">🏗</div>
+    <div class="empty-title" id="emptyTitle">Loading jobs…</div>
+    <div class="empty-hint" id="emptyHint">Fetching live projects from HubSpot</div>
+  </div>
+</div>
+
+<div id="printArea">
+  <div id="print-tg"          class="print-section"></div>
+  <div id="print-50x50"       class="print-section"></div>
+  <div id="print-lids"        class="print-section"></div>
+  <div id="print-uncompleted" class="print-section"></div>
+  <div id="print-valuereport" class="print-section"></div>
+  <div id="print-baseprep"   class="print-section"></div>
+</div>
+
+<footer>
+  <span>The Bike Shed Company — internal tool</span>
+  <span id="footerRight">—</span>
+</footer>
+
+<script>
+var DAYS   = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+var MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+var TRACKER_SELF_URL = '<?= selfUrl ?>';
+var allJobs        = [];
+var jobStates      = {};
+var routePlannerUrl = '';
+var expanded       = {};
+var collapsed      = {};
+var showDispatched  = false;
+var hideSiteVisits  = false;
+var weekFilter     = null;   // null = off, or ISO week string e.g. "2026-W14"
+var selectedFile   = null;
+var sortCol        = 'installDate';
+var sortDir        = 'asc';
+var lastSnapshot        = {};
+var pendingChanges      = [];
+var changedJobIds       = {};
+var snapshotLoaded      = false;
+var revcapLoadedFirst   = false; // true if REVCAP was parsed before snapshot returned
+var pendingSaves        = 0;     // counts in-flight saveJobState calls
+var pollInterval        = null;  // setInterval handle for live state polling
+var pollInFlight        = false; // prevent overlapping poll calls
+var POLL_MS             = 30000; // 30 seconds
+
+// ── INIT ─────────────────────────────────────────────────────
+// On page load: fetch saved state from Google Sheets in the background.
+// REVCAP is loaded manually by the user from their local OneDrive folder.
+
+window.addEventListener('load', function() {
+  setStatus('idle', 'Select REVCAP file to load jobs');
+  google.script.run
+    .withSuccessHandler(function(states) {
+      if (states) jobStates = states;
+      // REVCAP mode: state loaded in background; user loads jobs manually via file picker
+    })
+    .withFailureHandler(function() {})
+    .getState();
+  google.script.run
+    .withSuccessHandler(function(snapJson) {
+      try { lastSnapshot = JSON.parse(snapJson || '{}'); } catch(e) { lastSnapshot = {}; }
+      snapshotLoaded = true;
+      if (revcapLoadedFirst && allJobs.length > 0) {
+        compareWithSnapshot(allJobs);
+        render();
+      }
+    })
+    .withFailureHandler(function() { lastSnapshot = {}; snapshotLoaded = true; })
+    .getSnapshot();
+  loadTimetasticLeave();
+
+  // Fetch config (Route Planner URL etc.) — non-blocking
+  google.script.run
+    .withSuccessHandler(function(cfg) {
+      if (cfg && cfg.routePlannerUrl) {
+        routePlannerUrl = cfg.routePlannerUrl;
+        var btn = document.getElementById('btnRoutePlanner');
+        if (btn) btn.style.display = '';
+      }
+    })
+    .withFailureHandler(function() {}) // silently ignore — config is optional
+    .getConfig();
+});
+
+// ── ROUTE PLANNER LINK ───────────────────────────────────────
+// Opens the Route Planner in a new tab, deep-linking to the
+// currently selected week (or today's week) and passing back
+// the tracker URL so the route planner can show a "← Back" link.
+
+function openRoutePlanner() {
+  if (!routePlannerUrl) return;
+  // Get the date to navigate to: use weekFilter if set, else today
+  var dateStr;
+  if (weekFilter) {
+    // weekFilter is "YYYY-Www" — convert to Monday of that week
+    var parts = weekFilter.match(/^(\d{4})-W(\d{2})$/);
+    if (parts) {
+      var d = getDateOfISOWeek(parseInt(parts[2], 10), parseInt(parts[1], 10));
+      dateStr = d.toISOString().slice(0, 10);
+    }
+  }
+  if (!dateStr) dateStr = new Date().toISOString().slice(0, 10);
+
+  var trackerUrl = TRACKER_SELF_URL || window.location.href;
+  var url = routePlannerUrl +
+    '?date=' + encodeURIComponent(dateStr) +
+    '&tracker=' + encodeURIComponent(trackerUrl);
+  window.open(url, '_blank');
+}
+
+// Returns the Monday date of a given ISO week number + year
+function getDateOfISOWeek(week, year) {
+  var simple = new Date(year, 0, 1 + (week - 1) * 7);
+  var dow    = simple.getDay(); // 0=Sun
+  var isoMonday = simple;
+  if (dow <= 4) {
+    isoMonday.setDate(simple.getDate() - simple.getDay() + 1);
+  } else {
+    isoMonday.setDate(simple.getDate() + 8 - simple.getDay());
+  }
+  return isoMonday;
+}
+
+function loadFromHubSpot(forceRefresh) {
+  setStatus('loading', forceRefresh ? 'Refreshing from HubSpot…' : 'Loading jobs…');
+  var btn = document.getElementById('btnRefresh');
+  if (btn) btn.disabled = true;
+  google.script.run
+    .withSuccessHandler(function(jobs) {
+      allJobs = Array.isArray(jobs) ? jobs : [];
+      // Convert installDate strings ('YYYY-MM-DD') to Date objects
+      allJobs.forEach(function(j) {
+        if (j.installDate && typeof j.installDate === 'string') {
+          var d = new Date(j.installDate + 'T12:00:00Z');
+          j.installDate = isNaN(d.getTime()) ? null : d;
+        }
+      });
+      if (snapshotLoaded) {
+        compareWithSnapshot(allJobs);
+      } else {
+        revcapLoadedFirst = true;
+      }
+      populateModelFilter();
+      render();
+      enablePrintButtons(true);
+      startPolling();
+      var now = new Date();
+      setStatus('ok', 'Loaded ' + fmtTime(now));
+      ['toolbar','legend','printBar'].forEach(function(id) { document.getElementById(id).style.display = 'flex'; });
+      document.getElementById('footerRight').textContent = allJobs.length + ' live jobs · loaded ' + fmtTime(now);
+      if (btn) btn.disabled = false;
+    })
+    .withFailureHandler(function(err) {
+      var msg = err ? (err.message || String(err)) : 'Unknown error';
+      setStatus('error', msg);
+      var t = document.getElementById('emptyTitle'), h = document.getElementById('emptyHint');
+      if (t) t.textContent = 'Could not load from HubSpot';
+      if (h) h.textContent = msg;
+      if (btn) btn.disabled = false;
+    })
+    .getHubSpotJobs(forceRefresh || false);
+}
+
+// ── FILE PICKER ───────────────────────────────────────────────
+var fileInput = document.getElementById('fileInput');
+var fileZone  = document.getElementById('fileZone');
+fileInput.addEventListener('change', function() {
+  if (this.files[0]) { selectedFile = this.files[0]; onFileSelected(this.files[0].name); }
+});
+fileZone.addEventListener('dragover',  function(e) { e.preventDefault(); fileZone.classList.add('dragover'); });
+fileZone.addEventListener('dragleave', function()  { fileZone.classList.remove('dragover'); });
+fileZone.addEventListener('drop', function(e) {
+  e.preventDefault(); fileZone.classList.remove('dragover');
+  if (e.dataTransfer.files[0]) { selectedFile = e.dataTransfer.files[0]; onFileSelected(selectedFile.name); }
+});
+function onFileSelected(n) {
+  document.getElementById('fileLabel').textContent = n;
+  document.getElementById('btnLoad').disabled = false;
+}
+
+function loadFile() {
+  if (!selectedFile) return;
+  setStatus('loading', 'Reading file…');
+  document.getElementById('btnLoad').disabled = true;
+  var r = new FileReader();
+  r.onload = function(e) {
+    try { parseWorkbook(XLSX.read(new Uint8Array(e.target.result), { type: 'array', cellDates: true })); }
+    catch (err) { setStatus('error', 'Error: ' + err.message); document.getElementById('btnLoad').disabled = false; }
+  };
+  r.onerror = function() { setStatus('error', 'Could not read file'); document.getElementById('btnLoad').disabled = false; };
+  r.readAsArrayBuffer(selectedFile);
+}
+
+// ── PARSE ────────────────────────────────────────────────────
+// Robustly converts whatever SheetJS returns for a date cell into a JS Date (or null).
+// SheetJS can return: a Date object, an Excel serial number (integer), or a string.
+function parseSheetDate(v) {
+  if (!v && v !== 0) return null;
+  if (v instanceof Date) return isNaN(v.getTime()) ? null : v;
+  if (typeof v === 'number' && v > 0) {
+    // Excel serial: days since 1900-01-01 (accounting for Lotus 1-2-3 leap-year bug)
+    var d = new Date(Math.round((v - 25569) * 86400 * 1000));
+    return isNaN(d.getTime()) ? null : d;
+  }
+  if (typeof v === 'string' && v.trim()) {
+    // Try ISO and common UK formats
+    var s = v.trim();
+    var d = new Date(s);
+    if (!isNaN(d.getTime())) return d;
+    // dd/mm/yyyy or dd-mm-yyyy
+    var parts = s.split(/[\/\-\.]/);
+    if (parts.length === 3) {
+      var attempt = new Date(parts[2] + '-' + parts[1].padStart(2,'0') + '-' + parts[0].padStart(2,'0'));
+      if (!isNaN(attempt.getTime())) return attempt;
+    }
+  }
+  return null;
+}
+
+function parseWorkbook(wb) {
+  var filename = selectedFile ? selectedFile.name : 'REVCAP';
+  var salesRows = XLSX.utils.sheet_to_json(wb.Sheets['Sales'], { header: 1, defval: '' });
+  var installMap = {}, postcodeMap = {}, supplyTypeMap = {};
+  for (var s = 4; s < salesRows.length; s++) {
+    var sr = salesRows[s], sid = sr[0], sdt = sr[21];
+    if (sid !== '' && sid != null) {
+      installMap[String(sid)]  = parseSheetDate(sdt);
+      var pc = String(sr[9] || '').trim().toUpperCase();  // Sales col J = postcode
+      if (pc) postcodeMap[String(sid)] = pc;
+      var st = String(sr[11] || '').trim();               // Sales col L = supply type
+      if (st) supplyTypeMap[String(sid)] = st;
+    }
+  }
+  var loRows  = XLSX.utils.sheet_to_json(wb.Sheets['Live orders'], { header: 1, defval: '' });
+  var xLabels = ['Security Pack','Bi-folds','Green Roof','Joining Panel','Hooks','End Shelf','Recycling Shelf','Hangers','Additional Info'];
+  var jobs = [];
+  for (var r = 8; r < loRows.length; r++) {
+    var row = loRows[r], name = row[7];
+    if (!name || !String(name).trim()) continue;
+    var id = row[0], extras = [];
+    for (var x = 0; x < 9; x++) {
+      var ev = row[22 + x];
+      if (ev && String(ev).trim() && String(ev).trim().toLowerCase() !== 'none')
+        extras.push({ label: xLabels[x], value: String(ev).trim() });
+    }
+    // Live Orders cols AG/AH/AI (indices 32/33/34) = address parts
+    var addrParts = [row[32], row[33], row[34]].map(function(v) { return String(v || '').trim(); }).filter(Boolean);
+    var deliveryAddress = addrParts.join(', ') || null;
+    // Postcode: prefer Sales col J; fallback to last address part if it looks like a postcode
+    var postcode = postcodeMap[String(id)] || null;
+    if (!postcode && deliveryAddress) {
+      var pcFallback = deliveryAddress.match(/[A-Z]{1,2}[0-9][0-9A-Z]?\s*[0-9][A-Z]{2}$/i);
+      if (pcFallback) postcode = pcFallback[0].replace(/\s+/, ' ').toUpperCase();
+    }
+    jobs.push({
+      id: id, name: String(name).trim(), orderVal: row[4],
+      model: String(row[8] || '').trim(),
+      modelSize: String(row[10] || ((row[8] || '') + ' ' + (row[9] || '')).trim()).trim(),
+      colour: String(row[20] || '').trim(), colourDet: String(row[21] || '').trim(),
+      supplyType: supplyTypeMap[String(id)] || String(row[12] || '').trim(),
+      postcode: postcode,
+      deliveryAddress: deliveryAddress,
+      extras: extras, installDate: installMap[String(id)] || null
+    });
+  }
+  allJobs = jobs;
+  pushJobsToRouteCache();
+  compareWithSnapshot(jobs);
+  populateModelFilter();
+  render();
+  enablePrintButtons(true);
+  startPolling();
+  var now = new Date();
+  setStatus('ok', 'Loaded ' + fmtTime(now));
+  ['toolbar','legend','printBar'].forEach(function(id) { document.getElementById(id).style.display = 'flex'; });
+  document.getElementById('btnLoad').disabled = false;
+  document.getElementById('footerRight').textContent = filename + ' · ' + jobs.length + ' live jobs · loaded ' + fmtTime(now);
+
+  // Fetch job/install value split from HubSpot in the background
+  // Uses cached data if warm (zero API calls), otherwise makes targeted fetch
+  google.script.run
+    .withSuccessHandler(function(valMap) {
+      if (!valMap || !Object.keys(valMap).length) return;
+      var updated = 0;
+      allJobs.forEach(function(j) {
+        var v = valMap[String(j.id)];
+        if (v) { j.jobValue = v.jobValue || 0; j.installValue = v.installValue || 0; updated++; }
+      });
+      if (updated > 0) render(); // re-render to show split values
+    })
+    .withFailureHandler(function() {}) // silently ignore — values are supplemental
+    .getJobValues();
+}
+
+// ── JOB TYPE HELPERS ─────────────────────────────────────────
+function isAmendment(j) { return /amendment/i.test(j.supplyType || ''); }
+function isSiteVisit(j) { return /site.?visit/i.test(j.supplyType || ''); }
+function isBespoke(j)   { return /besp/i.test(j.model || ''); }
+
+// ── WEEK FILTER ──────────────────────────────────────────────
+// Returns the ISO week string "YYYY-WNN" for a given Date.
+function dateToWeekStr(date) {
+  var d = new Date(date); d.setHours(12, 0, 0, 0);
+  // Shift to Thursday of the same ISO week, then derive year and week number
+  d.setDate(d.getDate() + 3 - ((d.getDay() + 6) % 7));
+  var year = d.getFullYear();
+  var week1 = new Date(year, 0, 4);
+  var week1Thu = new Date(week1);
+  week1Thu.setDate(week1.getDate() + 3 - ((week1.getDay() + 6) % 7));
+  var weekNum = 1 + Math.round((d - week1Thu) / 604800000);
+  return year + '-W' + String(weekNum).padStart(2, '0');
+}
+
+// Returns {start, end} (Date) for an ISO week string "YYYY-WNN".
+function weekBounds(weekStr) {
+  var m = weekStr.match(/^(\d{4})-W(\d{2})$/);
+  if (!m) return null;
+  var year = parseInt(m[1], 10), week = parseInt(m[2], 10);
+  // Find Monday of week 1: the Monday on or before Jan 4
+  var jan4 = new Date(year, 0, 4);
+  var dayOfWeek = (jan4.getDay() + 6) % 7; // 0=Mon … 6=Sun
+  var week1Mon = new Date(jan4);
+  week1Mon.setDate(jan4.getDate() - dayOfWeek);
+  var start = new Date(week1Mon);
+  start.setDate(week1Mon.getDate() + (week - 1) * 7);
+  start.setHours(0, 0, 0, 0);
+  var end = new Date(start);
+  end.setDate(start.getDate() + 6);
+  end.setHours(23, 59, 59, 999);
+  return { start: start, end: end };
+}
+
+// Formats a week's date range as "Mon 14 Apr – Sun 20 Apr"
+function fmtWeekRange(weekStr) {
+  var b = weekBounds(weekStr);
+  if (!b) return weekStr;
+  return DAYS[b.start.getDay()] + ' ' + b.start.getDate() + ' ' + MONTHS[b.start.getMonth()] +
+    ' – ' + DAYS[b.end.getDay()] + ' ' + b.end.getDate() + ' ' + MONTHS[b.end.getMonth()];
+}
+
+function setThisWeek() {
+  weekFilter = dateToWeekStr(new Date());
+  applyWeekFilter();
+}
+
+function onWeekInputChange() {
+  var val = document.getElementById('weekInput').value;
+  if (val) { weekFilter = val; applyWeekFilter(); }
+}
+
+function shiftWeek(delta) {
+  if (!weekFilter) { setThisWeek(); return; }
+  var b = weekBounds(weekFilter);
+  if (!b) return;
+  var newDate = new Date(b.start);
+  newDate.setDate(b.start.getDate() + delta * 7);
+  weekFilter = dateToWeekStr(newDate);
+  applyWeekFilter();
+}
+
+function clearWeekFilter() {
+  weekFilter = null;
+  document.getElementById('weekNav').style.display = 'none';
+  document.getElementById('btnThisWeek').classList.remove('week-active');
+  render();
+  loadTimetasticLeave();
+}
+
+function applyWeekFilter() {
+  document.getElementById('weekNav').style.display = 'flex';
+  document.getElementById('btnThisWeek').classList.add('week-active');
+  document.getElementById('weekInput').value = weekFilter;
+  document.getElementById('weekLabel').textContent = fmtWeekRange(weekFilter);
+  render();
+  loadTimetasticLeave();
+}
+
+// ── TIMETASTIC LEAVE ─────────────────────────────────────────
+var timetasticLeaves = null;
+
+function fmtISO(d) {
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+
+function getLeaveWeekBounds() {
+  var wk = weekFilter || dateToWeekStr(new Date());
+  var b  = weekBounds(wk);
+  if (!b) {
+    var today = new Date(); today.setHours(0, 0, 0, 0);
+    var dayIdx = (today.getDay() + 6) % 7;
+    var mon = new Date(today); mon.setDate(today.getDate() - dayIdx);
+    return { start: mon };
+  }
+  return { start: b.start };
+}
+
+function loadTimetasticLeave() {
+  var b       = getLeaveWeekBounds();
+  var nextFri = new Date(b.start); nextFri.setDate(b.start.getDate() + 11);
+  document.getElementById('leaveDays').innerHTML = '<span class="leave-status">Loading…</span>';
+  google.script.run
+    .withSuccessHandler(function(result) {
+      if (result && result.leaves) {
+        timetasticLeaves = result.leaves;
+        renderLeavePanel();
+      } else {
+        var el = document.getElementById('leaveDays');
+        el.innerHTML = '<span class="leave-status error">' + esc(result.error || 'Could not load leave data') + '</span>';
+      }
+    })
+    .withFailureHandler(function() {
+      document.getElementById('leaveDays').innerHTML = '<span class="leave-status error">Could not connect to Timetastic</span>';
+    })
+    .getTimetasticLeave(fmtISO(b.start), fmtISO(nextFri));
+}
+
+function renderLeavePanel() {
+  var b      = getLeaveWeekBounds();
+  var today  = new Date(); today.setHours(0, 0, 0, 0);
+  var leaves = timetasticLeaves || [];
+  var cont   = document.getElementById('leaveDays');
+  cont.innerHTML = '';
+
+  var weeks = [
+    { label: 'This week', offset: 0 },
+    { label: 'Next week', offset: 7 }
+  ];
+
+  weeks.forEach(function(wk) {
+    var weekRow = document.createElement('div');
+    weekRow.className = 'leave-week';
+
+    var lbl = document.createElement('span');
+    lbl.className = 'leave-week-label';
+    lbl.textContent = wk.label;
+    weekRow.appendChild(lbl);
+
+    for (var i = 0; i < 5; i++) {
+      var day    = new Date(b.start); day.setDate(b.start.getDate() + wk.offset + i);
+      var dayStr = fmtISO(day);
+      var isToday = day.getTime() === today.getTime();
+
+      var dayEl = document.createElement('div');
+      dayEl.className = 'leave-day' + (isToday ? ' today' : '');
+
+      var nameEl = document.createElement('div');
+      nameEl.className = 'leave-day-name';
+      nameEl.textContent = DAYS[day.getDay()] + ' ' + day.getDate();
+      dayEl.appendChild(nameEl);
+
+      var onLeave = leaves.filter(function(l) { return l.startDate <= dayStr && l.endDate >= dayStr; });
+
+      if (onLeave.length === 0) {
+        var noneEl = document.createElement('div');
+        noneEl.className = 'leave-none';
+        noneEl.textContent = '—';
+        dayEl.appendChild(noneEl);
+      } else {
+        onLeave.forEach(function(l) {
+          var halfDay = false;
+          if (dayStr === l.startDate && dayStr === l.endDate && (l.startType !== 'Morning' || l.endType !== 'Afternoon')) halfDay = true;
+          else if (dayStr === l.startDate && l.startType !== 'Morning') halfDay = true;
+          else if (dayStr === l.endDate   && l.endType   !== 'Afternoon') halfDay = true;
+
+          var pEl = document.createElement('div');
+          pEl.className = 'leave-person' + (halfDay ? ' half' : '');
+          var parts = l.name.trim().split(/\s+/);
+          var short = parts[0] + (parts.length > 1 ? ' ' + parts[parts.length - 1][0] : '');
+          pEl.textContent = (halfDay ? '½ ' : '') + short;
+          pEl.title = l.name + ' — ' + l.leaveType + (halfDay ? ' (half day)' : '');
+          dayEl.appendChild(pEl);
+        });
+      }
+      weekRow.appendChild(dayEl);
+    }
+    cont.appendChild(weekRow);
+  });
+}
+
+// ── RENDER ───────────────────────────────────────────────────
+function populateModelFilter() {
+  var seen = {}, prev = document.getElementById('modelFilter').value;
+  allJobs.forEach(function(j) { var m = (j.modelSize || '').split(' ')[0]; if (m) seen[m] = 1; });
+  var sel = document.getElementById('modelFilter');
+  sel.innerHTML = '<option value="">All models</option>';
+  Object.keys(seen).sort().forEach(function(m) {
+    var o = document.createElement('option'); o.value = m; o.textContent = m; if (m === prev) o.selected = true;
+    sel.appendChild(o);
+  });
+}
+
+function render() {
+  var search = document.getElementById('searchInput').value.toLowerCase();
+  var mf = document.getElementById('modelFilter').value;
+  var tf = document.getElementById('typeFilter').value;
+  var today = new Date(); today.setHours(0, 0, 0, 0);
+
+  // Week filter bounds (null when not active)
+  var wBounds = weekFilter ? weekBounds(weekFilter) : null;
+
+  var jobs = allJobs.filter(function(j) {
+    if (mf && !j.modelSize.startsWith(mf)) return false;
+    if (tf && j.supplyType !== tf) return false;
+    if (hideSiteVisits && isSiteVisit(j)) return false;
+    if (search && ![String(j.id), j.name, j.modelSize, j.colour, j.supplyType].join(' ').toLowerCase().includes(search)) return false;
+    if (wBounds) {
+      if (!j.installDate) return false;
+      if (j.installDate < wBounds.start || j.installDate > wBounds.end) return false;
+    }
+    return true;
+  });
+
+  var sf = makeSortFn();
+  var notDisp = function(j) { return !getState(String(j.id)).dispatched; };
+  var main = document.getElementById('mainContent');
+  main.innerHTML = '';
+
+  if (wBounds) {
+    // Week mode — single section showing all jobs in that week
+    var weekJobs = showDispatched ? jobs : jobs.filter(notDisp);
+    weekJobs.sort(sf);
+    var isCurrentWeek = weekFilter === dateToWeekStr(new Date());
+    var sectionTitle = '📅 ' + (isCurrentWeek ? 'This week — ' : 'Week — ') + fmtWeekRange(weekFilter);
+    document.getElementById('countBadge').textContent = weekJobs.length + ' job' + (weekJobs.length !== 1 ? 's' : '');
+    if (!weekJobs.length) {
+      main.innerHTML = '<div class="empty-state"><div class="empty-icon">📅</div>' +
+        '<div class="empty-title">No installs scheduled for ' + fmtWeekRange(weekFilter) + '</div>' +
+        '<div class="empty-hint">Try the ◀ ▶ arrows to look at another week</div></div>';
+      return;
+    }
+    main.appendChild(buildSection('week', sectionTitle, weekJobs, false, 'upcoming'));
+    return;
+  }
+
+  var upcoming = [], overdue = [], nodated = [];
+  jobs.forEach(function(j) {
+    if (!j.installDate)              nodated.push(j);
+    else if (j.installDate >= today) upcoming.push(j);
+    else                             overdue.push(j);
+  });
+
+  upcoming.sort(sf); overdue.sort(sf); nodated.sort(sf);
+
+  var visUpcoming = showDispatched ? upcoming : upcoming.filter(notDisp);
+  var visOverdue  = showDispatched ? overdue  : overdue.filter(notDisp);
+  var visNodated  = showDispatched ? nodated  : nodated.filter(notDisp);
+  document.getElementById('countBadge').textContent = visUpcoming.length + ' upcoming';
+
+  if (!jobs.length) {
+    main.innerHTML = '<div class="empty-state"><div class="empty-icon">🔍</div><div class="empty-title">No jobs match the current filters</div></div>';
+    return;
+  }
+  if (visUpcoming.length) main.appendChild(buildSection('upcoming', '📋 Upcoming',            visUpcoming, false, 'upcoming'));
+  if (visOverdue.length)  main.appendChild(buildSection('overdue',  '⚠ Overdue / Past Dates', visOverdue,  true,  'overdue'));
+  if (visNodated.length)  main.appendChild(buildSection('nodated',  '○ No Date Set',           visNodated,  true,  'nodated'));
+  checkSedumAlert();
+  checkLytAlert();
+  checkSkpAlert();
+}
+
+// ── SORT ─────────────────────────────────────────────────────
+function makeSortFn() {
+  return function(a, b) {
+    var va, vb;
+    if (sortCol === 'name') {
+      va = a.name.toLowerCase(); vb = b.name.toLowerCase();
+      return sortDir === 'asc' ? (va < vb ? -1 : va > vb ? 1 : 0) : (va > vb ? -1 : va < vb ? 1 : 0);
+    }
+    if (sortCol === 'model') {
+      va = a.modelSize.toLowerCase(); vb = b.modelSize.toLowerCase();
+      return sortDir === 'asc' ? (va < vb ? -1 : va > vb ? 1 : 0) : (va > vb ? -1 : va < vb ? 1 : 0);
+    }
+    if (sortCol === 'colour') {
+      va = (a.colour || '').toLowerCase(); vb = (b.colour || '').toLowerCase();
+      if (va !== vb) return sortDir === 'asc' ? (va < vb ? -1 : 1) : (va > vb ? -1 : 1);
+      // Secondary: install date ascending (earliest first within same colour)
+      var da = a.installDate ? a.installDate.getTime() : 9999999999999;
+      var db = b.installDate ? b.installDate.getTime() : 9999999999999;
+      return da - db;
+    }
+    if (sortCol === 'spray') {
+      va = getState(String(a.id)).sprayDate || '9999'; vb = getState(String(b.id)).sprayDate || '9999';
+      return sortDir === 'asc' ? va.localeCompare(vb) : vb.localeCompare(va);
+    }
+    if (sortCol === 'assembly') {
+      va = getState(String(a.id)).assemblyDate || '9999'; vb = getState(String(b.id)).assemblyDate || '9999';
+      return sortDir === 'asc' ? va.localeCompare(vb) : vb.localeCompare(va);
+    }
+    var da = a.installDate ? a.installDate.getTime() : 9999999999999;
+    var db = b.installDate ? b.installDate.getTime() : 9999999999999;
+    return sortDir === 'asc' ? da - db : db - da;
+  };
+}
+
+function setSort(col) {
+  if (sortCol === col) sortDir = sortDir === 'asc' ? 'desc' : 'asc';
+  else { sortCol = col; sortDir = 'asc'; }
+  render();
+}
+
+// ── BUILD SECTION ────────────────────────────────────────────
+function buildSection(id, title, jobs, startCollapsed, type) {
+  if (!(id in collapsed)) collapsed[id] = startCollapsed;
+  var wrap = document.createElement('div'); wrap.className = 'section';
+
+  var hdr = document.createElement('div');
+  hdr.className = 'section-header' + (collapsed[id] ? ' collapsed' : '') + (type === 'overdue' ? ' overdue' : type === 'nodated' ? ' nodated' : '');
+  hdr.innerHTML = '<span class="section-title">' + title + '</span>' +
+    '<span class="section-count">' + jobs.length + '</span>' +
+    (type === 'overdue' ? '<button id="btnMarkAllDispatched" style="' +
+      'margin-left:10px;padding:3px 10px;font-family:var(--sans);font-size:11px;font-weight:500;' +
+      'cursor:pointer;border:1.5px solid #e0b0b0;border-radius:5px;' +
+      'background:var(--red-light);color:var(--red);white-space:nowrap;">' +
+      'Mark all as dispatched</button>' : '') +
+    '<span class="section-toggle' + (collapsed[id] ? '' : ' open') + '">▼</span>';
+  if (type === 'overdue') {
+    var markBtn = hdr.querySelector('#btnMarkAllDispatched');
+    markBtn.addEventListener('click', function(e) { e.stopPropagation(); markAllDispatched(); });
+  }
+  hdr.onclick = function() {
+    collapsed[id] = !collapsed[id];
+    var body = wrap.querySelector('.section-body'), tog = hdr.querySelector('.section-toggle');
+    body.style.display = collapsed[id] ? 'none' : '';
+    hdr.classList.toggle('collapsed', collapsed[id]);
+    tog.classList.toggle('open', !collapsed[id]);
+  };
+  wrap.appendChild(hdr);
+
+  var body = document.createElement('div'); body.className = 'section-body';
+  if (collapsed[id]) body.style.display = 'none';
+
+  var table = document.createElement('table');
+  table.innerHTML = '<thead><tr>' +
+    '<th style="width:44px">ID</th>' +
+    '<th class="sortable' + (sortCol === 'name'        ? ' sort-' + sortDir : '') + '" data-sort="name">Project</th>' +
+    '<th class="sortable' + (sortCol === 'model'       ? ' sort-' + sortDir : '') + '" data-sort="model">Model</th>' +
+    '<th class="sortable' + (sortCol === 'colour' ? ' sort-' + sortDir : '') + '" data-sort="colour">Colour</th>' +
+    '<th class="sortable' + (sortCol === 'installDate' ? ' sort-' + sortDir : '') + '" data-sort="installDate">Date</th>' +
+    '<th class="sortable' + (sortCol === 'spray'       ? ' sort-' + sortDir : '') + '" data-sort="spray">Spray Plan</th>' +
+    '<th class="sortable' + (sortCol === 'assembly'    ? ' sort-' + sortDir : '') + '" data-sort="assembly">Assembly Plan</th>' +
+    '<th style="width:60px;text-align:center">Lid Made</th>' +
+    '<th style="width:60px;text-align:center">Ready</th>' +
+    '<th style="width:52px"></th>' +
+    '</tr></thead>';
+
+  table.querySelectorAll('th[data-sort]').forEach(function(th) {
+    var c = th.dataset.sort;
+    th.onclick = function(e) { e.stopPropagation(); setSort(c); };
+  });
+
+  var tbody = document.createElement('tbody');
+  jobs.forEach(function(job) { buildJobRow(job).forEach(function(n) { tbody.appendChild(n); }); });
+  table.appendChild(tbody);
+  body.appendChild(table);
+  wrap.appendChild(body);
+  return wrap;
+}
+
+// ── BUILD JOB ROW ────────────────────────────────────────────
+function buildJobRow(job) {
+  var id    = String(job.id);
+  var state = getState(id);
+  var today = new Date(); today.setHours(0, 0, 0, 0);
+  var prog  = calcProgress(state, job);
+
+  var dpClass = 'none', dateTxt = '—';
+  if (job.installDate) {
+    dateTxt = fmtDate(job.installDate);
+    var diff = Math.ceil((job.installDate - today) / 86400000);
+    dpClass = diff < 0 ? 'overdue' : diff <= 14 ? 'soon' : 'upcoming';
+  }
+
+  var sprayTxt = state.sprayDate    ? '<span class="set">' + fmtDateFromStr(state.sprayDate)    + '</span>'
+                : state.sprayed    ? '<span style="color:var(--green);font-weight:600">Sprayed</span>'
+                :                    '<span style="color:var(--text-light)">—</span>';
+  var assyTxt  = state.assemblyDate ? '<span class="set">' + fmtDateFromStr(state.assemblyDate) + '</span>'
+                : state.assembled   ? '<span style="color:var(--green);font-weight:600">Assembled</span>'
+                :                     '<span style="color:var(--text-light)">—</span>';
+
+  var dotItems = getProgressItems(state, job);
+  var dots = dotItems.map(function(d) { return '<span style="color:' + (d ? 'var(--green)' : 'var(--border-dark)') + '">●</span>'; }).join('');
+
+  var isStarted = (!!state.tgCutDate || !!state.cut50x50Date) && !state.readyForDispatch && !state.dispatched;
+  var rowClass = 'job-row';
+  if (state.dispatched)            rowClass += ' dispatched';
+  else if (state.readyForDispatch) rowClass += ' dispatch-ready';
+  else if (isStarted)              rowClass += ' job-started';
+  else { var tc = typeClass(job.supplyType); if (tc !== 'install') rowClass += ' type-' + tc; }
+  if (state.dispatched && !showDispatched) rowClass += ' hidden-dispatched';
+  if (changedJobIds[id]) rowClass += ' job-changed';
+  if (expanded[id]) rowClass += ' expanded';
+
+  var dispBadge = state.dispatched ? '<span class="dispatched-badge">Left site</span>' : '';
+  var typeBadge = job.supplyType ? '<span class="type-badge ' + typeClass(job.supplyType) + '">' + esc(job.supplyType) + '</span>' : '';
+
+  var tr = document.createElement('tr');
+  tr.className = rowClass; tr.id = 'row-' + id;
+  tr.innerHTML =
+    '<td class="td-id">#' + esc(id) + '</td>' +
+    '<td class="td-name">' + esc(job.name) + typeBadge + dispBadge + '</td>' +
+    '<td class="td-model">' + esc(job.modelSize || '—') + '</td>' +
+    '<td class="td-model" style="font-size:11px;color:var(--text-muted)">' + esc(job.colour || '—') + '</td>' +
+    '<td><span class="date-pill ' + dpClass + '">' + dateTxt + '</span></td>' +
+    '<td class="td-planned"><span id="spray-disp-' + id + '">' + sprayTxt + '</span></td>' +
+    '<td class="td-planned"><span id="assy-disp-'  + id + '">' + assyTxt  + '</span></td>' +
+    '<td style="text-align:center" id="lid-disp-' + id + '">' +
+      (state.lidComplete ? '<span style="color:var(--green);font-size:15px;font-weight:700">✓</span>' : '<span style="color:var(--text-light)">—</span>') +
+    '</td>' +
+    '<td style="text-align:center" id="ready-disp-' + id + '">' +
+      (state.readyForDispatch ? '<span style="color:var(--green);font-weight:600;font-size:11px">Ready</span>' : '<span style="color:var(--text-light)">—</span>') +
+    '</td>' +
+    '<td class="td-expand">' +
+      '<button class="btn-lbl-row" onclick="event.stopPropagation();openLabels(\'' + id + '\')">🏷</button>' +
+      '<span class="expand-icon">▼</span>' +
+    '</td>';
+  tr.onclick = function() { toggleExpand(id); };
+
+  var detailTr = document.createElement('tr');
+  detailTr.className = 'job-detail' + (state.dispatched && !showDispatched ? ' hidden-dispatched' : '');
+  detailTr.id = 'detail-' + id;
+  detailTr.style.display = expanded[id] ? '' : 'none';
+  var dtd = document.createElement('td'); dtd.colSpan = 10;
+  dtd.innerHTML = buildDetailHTML(id, job, state);
+  detailTr.appendChild(dtd);
+
+  return [tr, detailTr];
+}
+
+// ── BUILD DETAIL HTML ────────────────────────────────────────
+function buildDetailHTML(id, job, state) {
+  var am = isAmendment(job), sv = isSiteVisit(job);
+
+  var colourTag  = job.colour ? '<span class="meta-chip colour">🎨 ' + esc(job.colour) + (job.colourDet && job.colourDet !== '-' ? ' — ' + esc(job.colourDet) : '') + '</span>' : '';
+  var valueTag = '';
+  if (job.jobValue > 0 || job.installValue > 0) {
+    if (job.jobValue     > 0) valueTag += '<span class="meta-chip value">£'       + Number(job.jobValue).toLocaleString('en-GB',{maximumFractionDigits:0})     + ' product</span>';
+    if (job.installValue > 0) valueTag += '<span class="meta-chip install-val">£' + Number(job.installValue).toLocaleString('en-GB',{maximumFractionDigits:0}) + ' install</span>';
+  } else if (job.orderVal && Number(job.orderVal) > 0) {
+    valueTag = '<span class="meta-chip value">£' + Number(job.orderVal).toLocaleString('en-GB',{minimumFractionDigits:0}) + '</span>';
+  }
+  var addrTag    = job.deliveryAddress ? '<div class="meta-address">📍 ' + esc(job.deliveryAddress) + '</div>' : '';
+  var extraTags = job.extras.map(function(e) {
+    return '<span class="meta-chip' + (e.label === 'Additional Info' ? ' info' : '') + '">' +
+      (e.label === 'Additional Info' ? esc(e.value) : '<strong>' + esc(e.label) + ':</strong> ' + esc(e.value)) + '</span>';
+  }).join('');
+
+  var savedMsg = state.lastSaved
+    ? '<span class="save-status saved">✓ Saved ' + state.lastSaved + '</span>'
+    : '<span class="save-status idle">Not yet saved this session</span>';
+
+  // ── SITE VISIT ──
+  if (sv) {
+    return '<div class="detail-panel">' +
+      '<div class="detail-grid">' +
+        '<div>' +
+          '<div class="notes-wrap">' +
+            '<div class="detail-section-label">Visit Notes</div>' +
+            '<textarea class="notes-field teal" id="notes-' + id + '" ' +
+            'oninput="event.stopPropagation();updateNotes(\'' + id + '\',this.value)" ' +
+            'placeholder="Notes for this visit…">' + esc(state.notes || '') + '</textarea>' +
+          '</div>' +
+        '</div>' +
+        '<div>' +
+          '<div class="detail-section-label">Job Info</div>' +
+          '<div class="detail-meta">' + colourTag + valueTag + extraTags + addrTag + '</div>' +
+        '</div>' +
+      '</div>' +
+      '<div class="tasks-section">' +
+        '<div class="detail-section-label">Status</div>' +
+        '<div class="tick-row">' +
+          '<button class="task-btn' + (state.siteVisitCompleted ? ' done' : '') + '" id="task-' + id + '-siteVisitCompleted" ' +
+          'onclick="event.stopPropagation();toggleTick(\'' + id + '\',\'siteVisitCompleted\')">' +
+          (state.siteVisitCompleted ? '✓ ' : '') + ' Visit Completed</button>' +
+        '</div>' +
+      '</div>' +
+      '<div class="save-status-row" id="save-row-' + id + '">' + savedMsg + '</div>' +
+    '</div>';
+  }
+
+  // ── AMENDMENT ──
+  if (am) {
+    var dispLabel = state.dispatched ? '✓ Left Site / Dispatched' : 'Mark as Dispatched';
+    var dispHint  = state.dispatched ? 'Use "Show dispatched" in toolbar to restore' : 'Hides from main list — use "Show dispatched" to restore';
+    var wr = state.workshopRequired;
+    return '<div class="detail-panel">' +
+      '<div class="detail-grid">' +
+        '<div>' +
+          '<div class="notes-wrap">' +
+            '<div class="detail-section-label">Workshop Prep / Notes</div>' +
+            '<textarea class="notes-field amber" id="notes-' + id + '" ' +
+            'oninput="event.stopPropagation();updateNotes(\'' + id + '\',this.value)" ' +
+            'placeholder="Add details…">' + esc(state.notes || '') + '</textarea>' +
+          '</div>' +
+        '</div>' +
+        '<div>' +
+          '<div class="detail-section-label">Job Info</div>' +
+          '<div class="detail-meta">' + colourTag + valueTag + extraTags + addrTag + '</div>' +
+        '</div>' +
+      '</div>' +
+      // Workshop required toggle
+      '<div style="margin:10px 0;padding:10px 0;border-top:1px solid var(--border);display:flex;align-items:center;gap:10px;">' +
+        '<button class="task-btn' + (wr ? ' done' : '') + '" id="am-wreq-btn-' + id + '" ' +
+        'onclick="event.stopPropagation();toggleWorkshopRequired(\'' + id + '\')">' +
+        (wr ? '✓ ' : '') + 'Workshop work required</button>' +
+        '<span style="font-size:11px;color:var(--text-muted)">Toggle on to track production tasks</span>' +
+      '</div>' +
+      // Production fields — shown only when workshopRequired
+      '<div id="am-prod-' + id + '" style="display:' + (wr ? '' : 'none') + '">' +
+        '<div class="tasks-section">' +
+          '<div class="detail-section-label">Production</div>' +
+          '<div class="tasks-grid">' +
+            '<div class="start-date-row">' +
+              '<span class="start-date-label">T&amp;G Cut start</span>' +
+              '<input type="date" class="start-date-input' + (state.tgCutDate ? ' set' : '') + '" id="tg-' + id + '" value="' + esc(state.tgCutDate || '') + '" ' +
+              'oninput="event.stopPropagation();updateStartDate(\'' + id + '\',\'tgCutDate\',this.value)">' +
+              (state.tgCutDate ? '<button class="start-clear-btn" onclick="event.stopPropagation();clearStartDate(\'' + id + '\',\'tgCutDate\')">✕</button>' : '') +
+            '</div>' +
+            '<div class="start-date-row">' +
+              '<span class="start-date-label">50×50 Cut start</span>' +
+              '<input type="date" class="start-date-input' + (state.cut50x50Date ? ' set' : '') + '" id="50x50-' + id + '" value="' + esc(state.cut50x50Date || '') + '" ' +
+              'oninput="event.stopPropagation();updateStartDate(\'' + id + '\',\'cut50x50Date\',this.value)">' +
+              (state.cut50x50Date ? '<button class="start-clear-btn" onclick="event.stopPropagation();clearStartDate(\'' + id + '\',\'cut50x50Date\')">✕</button>' : '') +
+            '</div>' +
+            '<div class="tick-row">' +
+              '<button class="task-btn' + (state.framed ? ' done' : '') + '" id="task-' + id + '-framed" onclick="event.stopPropagation();toggleTick(\'' + id + '\',\'framed\')">' +
+              (state.framed ? '✓ ' : '') + ' Framed</button>' +
+              '<span class="tick-date' + (state.framedDate ? ' set' : '') + '" id="framedDate-' + id + '">' +
+              (state.framedDate ? fmtDateFromStr(state.framedDate) : '—') + '</span>' +
+            '</div>' +
+            '<div class="tick-row">' +
+              '<button class="task-btn' + (state.sprayed ? ' done' : '') + '" id="task-' + id + '-sprayed" onclick="event.stopPropagation();toggleTick(\'' + id + '\',\'sprayed\')">' +
+              (state.sprayed ? '✓ ' : '') + ' Sprayed</button>' +
+              '<span class="tick-date' + (state.sprayedDate ? ' set' : '') + '" id="sprayedDate-' + id + '">' +
+              (state.sprayedDate ? fmtDateFromStr(state.sprayedDate) : '—') + '</span>' +
+            '</div>' +
+            '<div class="tick-row">' +
+              '<button class="task-btn' + (state.assembled ? ' done' : '') + '" id="task-' + id + '-assembled" onclick="event.stopPropagation();toggleTick(\'' + id + '\',\'assembled\')">' +
+              (state.assembled ? '✓ ' : '') + ' Assembled</button>' +
+              '<span class="tick-date' + (state.assembledDate ? ' set' : '') + '" id="assembledDate-' + id + '">' +
+              (state.assembledDate ? fmtDateFromStr(state.assembledDate) : '—') + '</span>' +
+            '</div>' +
+          '</div>' +
+        '</div>' +
+      '</div>' +
+      // Base Prep
+      '<div class="tasks-section">' +
+        '<div class="detail-section-label">Base Prep</div>' +
+        '<div class="tasks-grid">' +
+          '<div class="tick-row">' +
+            '<button class="task-btn' + (state.baseFrame ? ' done' : '') + '" id="task-' + id + '-baseFrame" onclick="event.stopPropagation();toggleTick(\'' + id + '\',\'baseFrame\')">' +
+            (state.baseFrame ? '✓ ' : '') + ' Base Frame</button>' +
+            '<span class="tick-date' + (state.baseFrameDate ? ' set' : '') + '" id="baseFrameDate-' + id + '">' + (state.baseFrameDate ? fmtDateFromStr(state.baseFrameDate) : '—') + '</span>' +
+          '</div>' +
+          '<div class="tick-row">' +
+            '<button class="task-btn' + (state.baseBoard ? ' done' : '') + '" id="task-' + id + '-baseBoard" onclick="event.stopPropagation();toggleTick(\'' + id + '\',\'baseBoard\')">' +
+            (state.baseBoard ? '✓ ' : '') + ' Base Board</button>' +
+            '<span class="tick-date' + (state.baseBoardDate ? ' set' : '') + '" id="baseBoardDate-' + id + '">' + (state.baseBoardDate ? fmtDateFromStr(state.baseBoardDate) : '—') + '</span>' +
+          '</div>' +
+          '<div class="tick-row">' +
+            '<button class="task-btn' + (state.shelves ? ' done' : '') + '" id="task-' + id + '-shelves" onclick="event.stopPropagation();toggleTick(\'' + id + '\',\'shelves\')">' +
+            (state.shelves ? '✓ ' : '') + ' Shelves</button>' +
+            '<span class="tick-date' + (state.shelvesDate ? ' set' : '') + '" id="shelvesDate-' + id + '">' + (state.shelvesDate ? fmtDateFromStr(state.shelvesDate) : '—') + '</span>' +
+          '</div>' +
+          '<div class="tick-row">' +
+            '<button class="task-btn' + (state.skirting ? ' done' : '') + '" id="task-' + id + '-skirting" onclick="event.stopPropagation();toggleTick(\'' + id + '\',\'skirting\')">' +
+            (state.skirting ? '✓ ' : '') + ' Skirting</button>' +
+            '<span class="tick-date' + (state.skirtingDate ? ' set' : '') + '" id="skirtingDate-' + id + '">' + (state.skirtingDate ? fmtDateFromStr(state.skirtingDate) : '—') + '</span>' +
+          '</div>' +
+          '<div class="tick-row">' +
+            '<button class="task-btn' + (state.braces ? ' done' : '') + '" id="task-' + id + '-braces" onclick="event.stopPropagation();toggleTick(\'' + id + '\',\'braces\')">' +
+            (state.braces ? '✓ ' : '') + ' Braces</button>' +
+            '<span class="tick-date' + (state.bracesDate ? ' set' : '') + '" id="bracesDate-' + id + '">' + (state.bracesDate ? fmtDateFromStr(state.bracesDate) : '—') + '</span>' +
+          '</div>' +
+        '</div>' +
+      '</div>' +
+      // Status — always shown
+      '<div class="tasks-section">' +
+        '<div class="detail-section-label">Status</div>' +
+        '<div class="tasks-grid">' +
+          '<div class="tick-row">' +
+            '<button class="task-btn' + (state.workCompleted ? ' done' : '') + '" id="task-' + id + '-workCompleted" ' +
+            'onclick="event.stopPropagation();toggleTick(\'' + id + '\',\'workCompleted\')">' +
+            (state.workCompleted ? '✓ ' : '') + ' Work Completed</button>' +
+          '</div>' +
+          '<div class="tick-row">' +
+            '<button class="task-btn dispatch-btn' + (state.readyForDispatch ? ' done' : '') + '" id="task-' + id + '-readyForDispatch" ' +
+            'onclick="event.stopPropagation();toggleTick(\'' + id + '\',\'readyForDispatch\')">' +
+            (state.readyForDispatch ? '✓ ' : '') + ' Ready for Dispatch</button>' +
+            '<span class="tick-date' + (state.readyForDispatchDate ? ' set' : '') + '" id="readyForDispatchDate-' + id + '">' +
+            (state.readyForDispatchDate ? fmtDateFromStr(state.readyForDispatchDate) : '—') + '</span>' +
+          '</div>' +
+        '</div>' +
+      '</div>' +
+      '<div class="dispatch-section">' +
+        '<button class="btn-dispatched' + (state.dispatched ? ' done' : '') + '" ' +
+        'onclick="event.stopPropagation();toggleDispatched(\'' + id + '\')">' + dispLabel + '</button>' +
+        '<span class="dispatch-hint">' + dispHint + '</span>' +
+      '</div>' +
+      '<div class="save-status-row" id="save-row-' + id + '">' + savedMsg + '</div>' +
+    '</div>';
+  }
+
+  // ── STANDARD JOB (Install / Delivery / Collection) ──
+  var lidTxt, lidClass;
+  if (state.assemblyDate) { lidTxt = '🪟 Lid required by: ' + fmtDateFromStr(state.assemblyDate); lidClass = 'lid-required'; }
+  else { lidTxt = '🪟 Lid required by: set an assembly date'; lidClass = 'lid-required unset'; }
+  var dispLabel2 = state.dispatched ? '✓ Left Site / Dispatched' : 'Mark as Dispatched';
+  var dispHint2  = state.dispatched ? 'Use "Show dispatched" in toolbar to restore' : 'Hides from main list — use "Show dispatched" to restore';
+
+  return '<div class="detail-panel">' +
+    '<div class="detail-grid">' +
+      '<div>' +
+        '<div class="detail-section-label">Planned Dates</div>' +
+        '<div class="planned-dates">' +
+          '<div class="date-field"><label>Spray date</label>' +
+            '<input type="date" class="date-input" id="spray-' + id + '" value="' + esc(state.sprayDate || '') + '" ' +
+            'onchange="event.stopPropagation();updatePlannedDate(\'' + id + '\',\'sprayDate\',this.value)">' +
+            '<button class="start-clear-btn" id="spray-clr-' + id + '" ' +
+            'style="' + (state.sprayDate ? '' : 'display:none;') + '" ' +
+            'onclick="event.stopPropagation();clearPlannedDate(\'' + id + '\',\'sprayDate\')">✕</button></div>' +
+          '<div class="date-field"><label>Assembly date</label>' +
+            '<input type="date" class="date-input" id="assy-' + id + '" value="' + esc(state.assemblyDate || '') + '" ' +
+            'onchange="event.stopPropagation();updatePlannedDate(\'' + id + '\',\'assemblyDate\',this.value)">' +
+            '<button class="start-clear-btn" id="assy-clr-' + id + '" ' +
+            'style="' + (state.assemblyDate ? '' : 'display:none;') + '" ' +
+            'onclick="event.stopPropagation();clearPlannedDate(\'' + id + '\',\'assemblyDate\')">✕</button></div>' +
+          '<div class="' + lidClass + '" id="lid-' + id + '" style="display:flex;align-items:center;gap:8px;">' +
+            '<span id="lid-txt-' + id + '">' + lidTxt + '</span>' +
+            '<button class="task-btn' + (state.lidComplete ? ' done' : '') + '" id="lid-btn-' + id + '" ' +
+            'style="font-size:11px;padding:3px 9px;flex-shrink:0;" ' +
+            'onclick="event.stopPropagation();toggleLidComplete(\'' + id + '\')">' +
+            (state.lidComplete ? '✓ Lid done' : 'Lid done?') + '</button>' +
+          '</div>' +
+        '</div>' +
+      '</div>' +
+      '<div>' +
+        '<div class="detail-section-label">Job Info</div>' +
+        '<div class="detail-meta">' + colourTag + valueTag + extraTags + addrTag + '</div>' +
+      '</div>' +
+    '</div>' +
+    '<div class="tasks-section">' +
+      '<div class="detail-section-label">Production</div>' +
+      '<div class="tasks-grid">' +
+        '<div class="start-date-row">' +
+          '<span class="start-date-label">T&amp;G Cut start</span>' +
+          '<input type="date" class="start-date-input' + (state.tgCutDate ? ' set' : '') + '" id="tg-' + id + '" value="' + esc(state.tgCutDate || '') + '" ' +
+          'oninput="event.stopPropagation();updateStartDate(\'' + id + '\',\'tgCutDate\',this.value)">' +
+          (state.tgCutDate ? '<button class="start-clear-btn" onclick="event.stopPropagation();clearStartDate(\'' + id + '\',\'tgCutDate\')">✕</button>' : '') +
+        '</div>' +
+        '<div class="start-date-row">' +
+          '<span class="start-date-label">50×50 Cut start</span>' +
+          '<input type="date" class="start-date-input' + (state.cut50x50Date ? ' set' : '') + '" id="50x50-' + id + '" value="' + esc(state.cut50x50Date || '') + '" ' +
+          'oninput="event.stopPropagation();updateStartDate(\'' + id + '\',\'cut50x50Date\',this.value)">' +
+          (state.cut50x50Date ? '<button class="start-clear-btn" onclick="event.stopPropagation();clearStartDate(\'' + id + '\',\'cut50x50Date\')">✕</button>' : '') +
+        '</div>' +
+        '<div class="tick-row">' +
+          '<button class="task-btn' + (state.framed ? ' done' : '') + '" id="task-' + id + '-framed" onclick="event.stopPropagation();toggleTick(\'' + id + '\',\'framed\')">' +
+          (state.framed ? '✓ ' : '') + ' Framed</button>' +
+          '<span class="tick-date' + (state.framedDate ? ' set' : '') + '" id="framedDate-' + id + '">' +
+          (state.framedDate ? fmtDateFromStr(state.framedDate) : '—') + '</span>' +
+        '</div>' +
+        '<div class="tick-row">' +
+          '<button class="task-btn' + (state.sprayed ? ' done' : '') + '" id="task-' + id + '-sprayed" onclick="event.stopPropagation();toggleTick(\'' + id + '\',\'sprayed\')">' +
+          (state.sprayed ? '✓ ' : '') + ' Sprayed</button>' +
+          '<span class="tick-date' + (state.sprayedDate ? ' set' : '') + '" id="sprayedDate-' + id + '">' +
+          (state.sprayedDate ? fmtDateFromStr(state.sprayedDate) : '—') + '</span>' +
+        '</div>' +
+        '<div class="tick-row">' +
+          '<button class="task-btn' + (state.assembled ? ' done' : '') + '" id="task-' + id + '-assembled" onclick="event.stopPropagation();toggleTick(\'' + id + '\',\'assembled\')">' +
+          (state.assembled ? '✓ ' : '') + ' Assembled</button>' +
+          '<span class="tick-date' + (state.assembledDate ? ' set' : '') + '" id="assembledDate-' + id + '">' +
+          (state.assembledDate ? fmtDateFromStr(state.assembledDate) : '—') + '</span>' +
+        '</div>' +
+        '<div class="tick-row">' +
+          '<button class="task-btn dispatch-btn' + (state.readyForDispatch ? ' done' : '') + '" id="task-' + id + '-readyForDispatch" onclick="event.stopPropagation();toggleTick(\'' + id + '\',\'readyForDispatch\')">' +
+          (state.readyForDispatch ? '✓ ' : '') + ' Ready for Dispatch</button>' +
+          '<span class="tick-date' + (state.readyForDispatchDate ? ' set' : '') + '" id="readyForDispatchDate-' + id + '">' +
+          (state.readyForDispatchDate ? fmtDateFromStr(state.readyForDispatchDate) : '—') + '</span>' +
+        '</div>' +
+      '</div>' +
+    '</div>' +
+    // Workshop Drawings — bespoke jobs only
+    (isBespoke(job) ?
+      '<div class="tasks-section">' +
+        '<div class="detail-section-label">Workshop Drawings</div>' +
+        '<div class="tasks-grid">' +
+          '<div class="tick-row">' +
+            '<button class="task-btn' + (state.skpDone ? ' done' : '') + '" id="task-' + id + '-skpDone" onclick="event.stopPropagation();toggleTick(\'' + id + '\',\'skpDone\')">' +
+            (state.skpDone ? '✓ ' : '') + 'SKP Done</button>' +
+            '<span class="tick-date' + (state.skpDoneDate ? ' set' : '') + '" id="skpDoneDate-' + id + '">' +
+            (state.skpDoneDate ? fmtDateFromStr(state.skpDoneDate) : '—') + '</span>' +
+          '</div>' +
+          '<div class="tick-row">' +
+            '<button class="task-btn' + (state.lytDone ? ' done' : '') + '" id="task-' + id + '-lytDone" onclick="event.stopPropagation();toggleTick(\'' + id + '\',\'lytDone\')">' +
+            (state.lytDone ? '✓ ' : '') + 'LYT Done</button>' +
+            '<span class="tick-date' + (state.lytDoneDate ? ' set' : '') + '" id="lytDoneDate-' + id + '">' +
+            (state.lytDoneDate ? fmtDateFromStr(state.lytDoneDate) : '—') + '</span>' +
+          '</div>' +
+        '</div>' +
+      '</div>'
+    : '') +
+    // Base Prep
+    '<div class="tasks-section">' +
+      '<div class="detail-section-label">Base Prep</div>' +
+      '<div class="tasks-grid">' +
+        '<div class="tick-row">' +
+          '<button class="task-btn' + (state.baseFrame ? ' done' : '') + '" id="task-' + id + '-baseFrame" onclick="event.stopPropagation();toggleTick(\'' + id + '\',\'baseFrame\')">' +
+          (state.baseFrame ? '✓ ' : '') + ' Base Frame</button>' +
+          '<span class="tick-date' + (state.baseFrameDate ? ' set' : '') + '" id="baseFrameDate-' + id + '">' + (state.baseFrameDate ? fmtDateFromStr(state.baseFrameDate) : '—') + '</span>' +
+        '</div>' +
+        '<div class="tick-row">' +
+          '<button class="task-btn' + (state.baseBoard ? ' done' : '') + '" id="task-' + id + '-baseBoard" onclick="event.stopPropagation();toggleTick(\'' + id + '\',\'baseBoard\')">' +
+          (state.baseBoard ? '✓ ' : '') + ' Base Board</button>' +
+          '<span class="tick-date' + (state.baseBoardDate ? ' set' : '') + '" id="baseBoardDate-' + id + '">' + (state.baseBoardDate ? fmtDateFromStr(state.baseBoardDate) : '—') + '</span>' +
+        '</div>' +
+        '<div class="tick-row">' +
+          '<button class="task-btn' + (state.shelves ? ' done' : '') + '" id="task-' + id + '-shelves" onclick="event.stopPropagation();toggleTick(\'' + id + '\',\'shelves\')">' +
+          (state.shelves ? '✓ ' : '') + ' Shelves</button>' +
+          '<span class="tick-date' + (state.shelvesDate ? ' set' : '') + '" id="shelvesDate-' + id + '">' + (state.shelvesDate ? fmtDateFromStr(state.shelvesDate) : '—') + '</span>' +
+        '</div>' +
+        '<div class="tick-row">' +
+          '<button class="task-btn' + (state.skirting ? ' done' : '') + '" id="task-' + id + '-skirting" onclick="event.stopPropagation();toggleTick(\'' + id + '\',\'skirting\')">' +
+          (state.skirting ? '✓ ' : '') + ' Skirting</button>' +
+          '<span class="tick-date' + (state.skirtingDate ? ' set' : '') + '" id="skirtingDate-' + id + '">' + (state.skirtingDate ? fmtDateFromStr(state.skirtingDate) : '—') + '</span>' +
+        '</div>' +
+        '<div class="tick-row">' +
+          '<button class="task-btn' + (state.braces ? ' done' : '') + '" id="task-' + id + '-braces" onclick="event.stopPropagation();toggleTick(\'' + id + '\',\'braces\')">' +
+          (state.braces ? '✓ ' : '') + ' Braces</button>' +
+          '<span class="tick-date' + (state.bracesDate ? ' set' : '') + '" id="bracesDate-' + id + '">' + (state.bracesDate ? fmtDateFromStr(state.bracesDate) : '—') + '</span>' +
+        '</div>' +
+      '</div>' +
+    '</div>' +
+    '<div class="dispatch-section">' +
+      '<button class="btn-dispatched' + (state.dispatched ? ' done' : '') + '" onclick="event.stopPropagation();toggleDispatched(\'' + id + '\')">' + dispLabel2 + '</button>' +
+      '<span class="dispatch-hint">' + dispHint2 + '</span>' +
+    '</div>' +
+    '<div class="notes-wrap" style="margin-top:12px;">' +
+      '<div class="detail-section-label">Notes</div>' +
+      '<textarea class="notes-field" id="notes-' + id + '" ' +
+      'oninput="event.stopPropagation();updateNotes(\'' + id + '\',this.value)" ' +
+      'placeholder="Add notes for this job…">' + esc(state.notes || '') + '</textarea>' +
+    '</div>' +
+    '<div class="save-status-row" id="save-row-' + id + '">' + savedMsg +
+      '<button class="btn-make-labels" onclick="event.stopPropagation();openLabels(\'' + id + '\')">🏷 Make Labels</button>' +
+    '</div>' +
+  '</div>';
+}
+
+// ── INTERACTIONS ─────────────────────────────────────────────
+function toggleExpand(id) {
+  var opening = !expanded[id];
+  // Close any currently open job first
+  for (var openId in expanded) {
+    if (expanded[openId] && openId !== id) {
+      expanded[openId] = false;
+      var od = document.getElementById('detail-' + openId), or_ = document.getElementById('row-' + openId);
+      if (od) od.style.display = 'none';
+      if (or_) or_.classList.remove('expanded');
+    }
+  }
+  expanded[id] = opening;
+  var d = document.getElementById('detail-' + id), r = document.getElementById('row-' + id);
+  if (d) d.style.display = expanded[id] ? '' : 'none';
+  if (r) r.classList.toggle('expanded', expanded[id]);
+  if (expanded[id] && d) { setTimeout(function() { d.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); }, 50); }
+}
+
+function toggleTick(id, field) {
+  var state = getState(id), today = todayStr();
+  state[field] = !state[field];
+  if (field === 'framed') {
+    state.framedDate = state.framed ? today : '';
+    var fe = document.getElementById('framedDate-' + id);
+    if (fe) { fe.textContent = state.framedDate ? fmtDateFromStr(state.framedDate) : '—'; fe.className = 'tick-date' + (state.framedDate ? ' set' : ''); }
+  }
+  if (field === 'sprayed') {
+    state.sprayedDate = state.sprayed ? today : '';
+    var se = document.getElementById('sprayedDate-' + id);
+    if (se) { se.textContent = state.sprayedDate ? fmtDateFromStr(state.sprayedDate) : '—'; se.className = 'tick-date' + (state.sprayedDate ? ' set' : ''); }
+    if (state.sprayed && !state.sprayDate) {
+      state.sprayDate = today;
+      var si = document.getElementById('spray-' + id); if (si) si.value = today;
+      var sd = document.getElementById('spray-disp-' + id); if (sd) sd.innerHTML = '<span class="set">' + fmtDateFromStr(today) + '</span>';
+    }
+  }
+  if (field === 'assembled') {
+    state.assembledDate = state.assembled ? today : '';
+    var ae = document.getElementById('assembledDate-' + id);
+    if (ae) { ae.textContent = state.assembledDate ? fmtDateFromStr(state.assembledDate) : '—'; ae.className = 'tick-date' + (state.assembledDate ? ' set' : ''); }
+  }
+  if (field === 'readyForDispatch') {
+    state.readyForDispatchDate = state.readyForDispatch ? today : '';
+    var re = document.getElementById('readyForDispatchDate-' + id);
+    if (re) { re.textContent = state.readyForDispatchDate ? fmtDateFromStr(state.readyForDispatchDate) : '—'; re.className = 'tick-date' + (state.readyForDispatchDate ? ' set' : ''); }
+  }
+  // Auto-dispatch site visits when Visit Completed is ticked
+  if (field === 'siteVisitCompleted' && state.siteVisitCompleted) {
+    state.dispatched = true;
+  }
+  var _drawingFields = { skpDone:'skpDoneDate', lytDone:'lytDoneDate' };
+  if (_drawingFields[field]) {
+    var _ddf = _drawingFields[field];
+    state[_ddf] = state[field] ? today : '';
+    var _del = document.getElementById(_ddf + '-' + id);
+    if (_del) { _del.textContent = state[_ddf] ? fmtDateFromStr(state[_ddf]) : '—'; _del.className = 'tick-date' + (state[_ddf] ? ' set' : ''); }
+  }
+  var _basePrepFields = { baseFrame:'baseFrameDate', baseBoard:'baseBoardDate', shelves:'shelvesDate', skirting:'skirtingDate', braces:'bracesDate' };
+  if (_basePrepFields[field]) {
+    var _df = _basePrepFields[field];
+    state[_df] = state[field] ? today : '';
+    var _el = document.getElementById(_df + '-' + id);
+    if (_el) { _el.textContent = state[_df] ? fmtDateFromStr(state[_df]) : '—'; _el.className = 'tick-date' + (state[_df] ? ' set' : ''); }
+  }
+  saveState(id, state);
+  var btn = document.getElementById('task-' + id + '-' + field);
+  if (btn) { btn.classList.toggle('done', state[field]); btn.textContent = (state[field] ? '✓ ' : ' ') + fieldLabel(field); }
+  // Re-render fully when auto-dispatching so the row disappears from the main list
+  if (field === 'siteVisitCompleted' && state.siteVisitCompleted) {
+    render();
+  } else {
+    updateRowClass(id, state);
+    updateProgressDisplay(id, state);
+    checkLytAlert();
+    checkSkpAlert();
+  }
+}
+
+function updateStartDate(id, field, value) {
+  var state = getState(id); state[field] = value; saveState(id, state);
+  var inp = document.getElementById((field === 'tgCutDate' ? 'tg' : '50x50') + '-' + id);
+  if (inp) inp.className = 'start-date-input' + (value ? ' set' : '');
+  updateRowClass(id, state); updateProgressDisplay(id, state);
+}
+function clearStartDate(id, field) { var state = getState(id); state[field] = ''; saveState(id, state); render(); }
+function clearPlannedDate(id, field) {
+  var state = getState(id); state[field] = ''; saveState(id, state);
+  var inp = document.getElementById(field === 'sprayDate' ? 'spray-' + id : 'assy-' + id);
+  if (inp) inp.value = '';
+  var disp = document.getElementById(field === 'sprayDate' ? 'spray-disp-' + id : 'assy-disp-' + id);
+  if (disp) disp.innerHTML = '<span style="color:var(--text-light)">—</span>';
+  // Hide the clear button itself
+  var btn = document.getElementById(field === 'sprayDate' ? 'spray-clr-' + id : 'assy-clr-' + id);
+  if (btn) btn.style.display = 'none';
+}
+
+function updatePlannedDate(id, field, value) {
+  var state = getState(id); state[field] = value; saveState(id, state);
+  var dispId = field === 'sprayDate' ? 'spray-disp-' + id : 'assy-disp-' + id;
+  var disp = document.getElementById(dispId);
+  if (disp) disp.innerHTML = value ? '<span class="set">' + fmtDateFromStr(value) + '</span>' : '<span style="color:var(--text-light)">—</span>';
+  var clrId = field === 'sprayDate' ? 'spray-clr-' + id : 'assy-clr-' + id;
+  var clrBtn = document.getElementById(clrId);
+  if (clrBtn) clrBtn.style.display = value ? '' : 'none';
+  if (field === 'assemblyDate') {
+    var lidTxtEl = document.getElementById('lid-txt-' + id);
+    var lidEl    = document.getElementById('lid-' + id);
+    if (lidTxtEl) lidTxtEl.textContent = value ? '🪟 Lid required by: ' + fmtDateFromStr(value) : '🪟 Lid required by: set an assembly date';
+    if (lidEl)    lidEl.className = value ? 'lid-required' : 'lid-required unset';
+  }
+}
+function updateNotes(id, value) { var state = getState(id); state.notes = value; saveState(id, state); }
+function toggleLidComplete(id) {
+  var state = getState(id);
+  state.lidComplete = !state.lidComplete;
+  saveState(id, state);
+  var btn = document.getElementById('lid-btn-' + id);
+  if (btn) { btn.classList.toggle('done', state.lidComplete); btn.textContent = state.lidComplete ? '✓ Lid done' : 'Lid done?'; }
+  var lidDiv = document.getElementById('lid-' + id);
+  if (lidDiv) lidDiv.style.opacity = state.lidComplete ? '0.5' : '';
+  // Update dashboard Lid Made cell
+  var lidDisp = document.getElementById('lid-disp-' + id);
+  if (lidDisp) lidDisp.innerHTML = state.lidComplete ? '<span style="color:var(--green);font-size:15px;font-weight:700">✓</span>' : '<span style="color:var(--text-light)">—</span>';
+}
+function toggleDispatched(id) { var state = getState(id); state.dispatched = !state.dispatched; saveState(id, state); render(); }
+function markAllDispatched() {
+  var today = new Date(); today.setHours(0, 0, 0, 0);
+  var overdue = allJobs.filter(function(j) {
+    return j.installDate && j.installDate < today && !getState(String(j.id)).dispatched;
+  });
+  if (!overdue.length) return;
+  if (!confirm('Mark all ' + overdue.length + ' overdue job(s) as dispatched?')) return;
+  overdue.forEach(function(j) {
+    var state = getState(String(j.id));
+    state.dispatched = true;
+    saveState(String(j.id), state);
+  });
+  render();
+}
+// ── DATE HELPER (timezone-safe) ──────────────────────────────
+function localDateStr(d) {
+  return d.getFullYear() + '-' +
+         String(d.getMonth() + 1).padStart(2, '0') + '-' +
+         String(d.getDate()).padStart(2, '0');
+}
+
+// ── CHANGE DETECTION ─────────────────────────────────────────
+function compareWithSnapshot(jobs) {
+  if (!jobs || !Array.isArray(jobs)) return;
+  pendingChanges = [];
+  changedJobIds  = {};
+  if (!snapshotLoaded) {
+    // Snapshot hasn't come back from the server yet — flag so we run comparison when it does
+    revcapLoadedFirst = true;
+    updateChangeBadge();
+    return;
+  }
+  if (Object.keys(lastSnapshot).length === 0) {
+    // Snapshot empty — first ever use, save baseline silently
+    saveCurrentSnapshot();
+    updateChangeBadge();
+    return;
+  }
+  // Check snapshot contains at least one recognised job ID.
+  // If none match (e.g. old format data was read), treat as first use.
+  var hasValidEntries = jobs.some(function(j) { return !!lastSnapshot[String(j.id)]; });
+  if (!hasValidEntries) {
+    saveCurrentSnapshot();
+    updateChangeBadge();
+    return;
+  }
+  jobs.forEach(function(j) {
+    var id  = String(j.id);
+    var old = lastSnapshot[id];
+    if (!old) return; // brand new job — don't flag
+    var diffs = [];
+    var newDate = j.installDate ? localDateStr(j.installDate) : null;
+    if ((old.installDate || null) !== newDate)
+      diffs.push({ field: 'Install date', from: old.installDate ? fmtDateFromStr(old.installDate) : 'No date set', to: newDate ? fmtDateFromStr(newDate) : 'No date set' });
+    if ((old.colour || '') !== (j.colour || ''))
+      diffs.push({ field: 'Colour', from: old.colour || '—', to: j.colour || '—' });
+    if ((old.colourDet || '') !== (j.colourDet || ''))
+      diffs.push({ field: 'Colour detail', from: old.colourDet || '—', to: j.colourDet || '—' });
+    if ((old.supplyType || '') !== (j.supplyType || ''))
+      diffs.push({ field: 'Type', from: old.supplyType || '—', to: j.supplyType || '—' });
+    if ((old.modelSize || '') !== (j.modelSize || ''))
+      diffs.push({ field: 'Model', from: old.modelSize || '—', to: j.modelSize || '—' });
+    if (diffs.length) {
+      pendingChanges.push({ id: id, name: j.name, diffs: diffs });
+      changedJobIds[id] = true;
+    }
+  });
+  updateChangeBadge();
+}
+
+function updateChangeBadge() {
+  var btn = document.getElementById('btnChanges');
+  if (!btn) return;
+  if (pendingChanges.length > 0) {
+    document.getElementById('changesCount').textContent = pendingChanges.length;
+    btn.style.display = 'inline-block';
+  } else {
+    btn.style.display = 'none';
+  }
+}
+
+function showChangesPanel() {
+  var list = document.getElementById('changesList');
+  list.innerHTML = pendingChanges.map(function(c) {
+    var rows = c.diffs.map(function(d) {
+      return '<div class="change-row">' +
+        '<span class="change-field">' + esc(d.field) + '</span>' +
+        '<span class="change-from">' + esc(d.from) + '</span>' +
+        '<span class="change-arrow">→</span>' +
+        '<span class="change-to">' + esc(d.to) + '</span>' +
+      '</div>';
+    }).join('');
+    return '<div class="change-job" id="change-card-' + c.id + '">' +
+      '<div class="change-job-hdr">' +
+        '<span class="change-job-name">' + esc(c.name) + '</span>' +
+        '<span class="change-job-id">#' + esc(c.id) + '</span>' +
+      '</div>' +
+      rows +
+      '<div class="change-job-footer">' +
+        '<button class="btn-review" onclick="reviewJob(\'' + c.id + '\')">Jump to job ↗</button>' +
+        '<button class="btn-mark-reviewed" onclick="reviewSingleJob(\'' + c.id + '\')">✓ Mark reviewed</button>' +
+      '</div>' +
+    '</div>';
+  }).join('');
+  document.getElementById('changesPanel').classList.add('open');
+  document.getElementById('changesOverlay').style.display = 'block';
+}
+
+function closeChangesPanel() {
+  document.getElementById('changesPanel').classList.remove('open');
+  document.getElementById('changesOverlay').style.display = 'none';
+}
+
+function reviewJob(id) {
+  closeChangesPanel();
+  setTimeout(function() {
+    var row = document.getElementById('row-' + id);
+    if (row) {
+      row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      if (!expanded[id]) toggleExpand(id);
+    }
+  }, 320);
+}
+
+function reviewSingleJob(id) {
+  // Remove from pending list and clear highlight
+  pendingChanges = pendingChanges.filter(function(c) { return c.id !== id; });
+  delete changedJobIds[id];
+  // Update the dashboard row highlight immediately
+  var row = document.getElementById('row-' + id);
+  if (row) row.classList.remove('job-changed');
+  // Update lastSnapshot for this job so it won't re-flag on next load
+  var job = allJobs.find(function(j) { return String(j.id) === id; });
+  if (job) {
+    lastSnapshot[id] = {
+      installDate: job.installDate ? localDateStr(job.installDate) : null,
+      colour:      job.colour     || '',
+      colourDet:   job.colourDet  || '',
+      supplyType:  job.supplyType || '',
+      modelSize:   job.modelSize  || ''
+    };
+  }
+  // Remove this card from the panel
+  var card = document.getElementById('change-card-' + id);
+  if (card) card.remove();
+  // Update badge count
+  updateChangeBadge();
+  // Save snapshot immediately so this review survives a page refresh
+  persistSnapshot();
+  // If all reviewed, close panel
+  if (pendingChanges.length === 0) closeChangesPanel();
+}
+
+function saveCurrentSnapshot() {
+  // Rebuild snapshot from current REVCAP data (used on first load and dismiss-all)
+  allJobs.forEach(function(j) {
+    lastSnapshot[String(j.id)] = {
+      installDate: j.installDate ? localDateStr(j.installDate) : null,
+      colour:      j.colour     || '',
+      colourDet:   j.colourDet  || '',
+      supplyType:  j.supplyType || '',
+      modelSize:   j.modelSize  || ''
+    };
+  });
+  persistSnapshot();
+}
+
+function persistSnapshot() {
+  // Write lastSnapshot as-is to sheet (preserves old values for unreviewed jobs)
+  google.script.run
+    .withSuccessHandler(function() {
+      console.log('[snapshot] saved ok — ' + Object.keys(lastSnapshot).length + ' jobs');
+    })
+    .withFailureHandler(function(err) {
+      console.error('[snapshot] save FAILED:', err && err.message);
+    })
+    .saveSnapshot(JSON.stringify(lastSnapshot));
+}
+
+function dismissAllChanges() {
+  pendingChanges = [];
+  changedJobIds  = {};
+  closeChangesPanel();
+  updateChangeBadge();
+  render();
+  saveCurrentSnapshot();
+}
+
+// ── VALUE REPORT ────────────────────────────────────────────────
+function showValueReport() {
+  if (!allJobs || allJobs.length === 0) {
+    alert('Please load REVCAP first, then click Value Report.');
+    return;
+  }
+
+  var CUTOFF = '2026-04-01';
+  var fmt = function(v) {
+    return '£' + Number(v).toLocaleString('en-GB', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+  };
+
+  var dispatched = [], ready = [], inProgress = [], notStarted = [], excluded = [];
+
+  allJobs.forEach(function(job) {
+    var s       = getState(String(job.id));
+    var items   = getProgressItems(s, job);
+    var done    = items.filter(Boolean).length;
+    var total   = items.length;
+    var val     = parseFloat(String(job.orderVal).replace(/[^0-9.]/g, '')) || 0;
+    var isoDate = job.installDate ? fmtISO(job.installDate) : '';
+
+    // Only include jobs with install date on or after the cutoff,
+    // OR jobs with no install date that have been worked on (Steve touched them)
+    if (isoDate && isoDate < CUTOFF) return;
+    if (!isoDate && done === 0) return;
+
+    var entry = { id: job.id, name: job.name, modelSize: job.modelSize || '', val: val, date: isoDate, done: done, total: total,
+                  framedDate: s.framedDate || '', sprayedDate: s.sprayedDate || '',
+                  assembledDate: s.assembledDate || '', readyDate: s.readyForDispatchDate || '' };
+
+    if (s.dispatched)            dispatched.push(entry);
+    else if (s.readyForDispatch) ready.push(entry);
+    else if (done > 0)           inProgress.push(entry);
+    else                         notStarted.push(entry);
+  });
+
+  var sumVal = function(arr) { return arr.reduce(function(t, e) { return t + e.val; }, 0); };
+  var completedVal  = sumVal(dispatched) + sumVal(ready);
+  var progressVal   = sumVal(inProgress);
+  var totalTracked  = completedVal + progressVal + sumVal(notStarted);
+
+  // Summary cards
+  var summary = document.getElementById('vrSummary');
+  summary.innerHTML =
+    '<div class="vr-card complete">' +
+      '<div class="vr-card-label">✓ Completed (dispatched + ready)</div>' +
+      '<div class="vr-card-val">' + fmt(completedVal) + '</div>' +
+      '<div class="vr-card-sub">' + (dispatched.length + ready.length) + ' jobs</div>' +
+    '</div>' +
+    '<div class="vr-card">' +
+      '<div class="vr-card-label">🔨 In progress</div>' +
+      '<div class="vr-card-val">' + fmt(progressVal) + '</div>' +
+      '<div class="vr-card-sub">' + inProgress.length + ' jobs</div>' +
+    '</div>' +
+    '<div class="vr-card">' +
+      '<div class="vr-card-label">📋 Not started</div>' +
+      '<div class="vr-card-val">' + fmt(sumVal(notStarted)) + '</div>' +
+      '<div class="vr-card-sub">' + notStarted.length + ' jobs</div>' +
+    '</div>' +
+    '<div class="vr-card">' +
+      '<div class="vr-card-label">Total tracked</div>' +
+      '<div class="vr-card-val">' + fmt(totalTracked) + '</div>' +
+      '<div class="vr-card-sub">' + allJobs.length + ' live jobs</div>' +
+    '</div>';
+
+  // Job rows
+  var body = document.getElementById('vrBody');
+  body.innerHTML = '';
+
+  var fmtD = function(d) { return d ? d.substring(5).replace('-', '/') : ''; };
+  var dateBits = function(e) {
+    var bits = [];
+    if (e.framedDate)   bits.push('Framed ' + fmtD(e.framedDate));
+    if (e.sprayedDate)  bits.push('Sprayed ' + fmtD(e.sprayedDate));
+    if (e.assembledDate) bits.push('Assembled ' + fmtD(e.assembledDate));
+    if (e.readyDate)    bits.push('Ready ' + fmtD(e.readyDate));
+    return bits.join(' · ');
+  };
+
+  var renderSection = function(label, arr) {
+    if (arr.length === 0) return;
+    var sec = document.createElement('div');
+    var total = sumVal(arr);
+    sec.innerHTML = '<div class="vr-section-hdr"><span>' + label + ' (' + arr.length + ' jobs)</span><span>' + fmt(total) + '</span></div>';
+    arr.sort(function(a,b){ return (a.date || 'zzzz').localeCompare(b.date || 'zzzz'); });
+    arr.forEach(function(e) {
+      var dates = dateBits(e);
+      var row = document.createElement('div');
+      row.className = 'vr-job';
+      row.innerHTML =
+        '<span class="vr-job-id">' + esc(String(e.id)) + '</span>' +
+        '<span class="vr-job-name" title="' + esc(e.name) + '">' + esc(e.name) +
+          (dates ? '<br><span class="vr-job-dates">' + esc(dates) + '</span>' : '') + '</span>' +
+        '<span class="vr-job-model">' + esc(e.modelSize) + '</span>' +
+        '<span class="vr-job-date">' + (e.date ? e.date.substring(5) : '—') + '</span>' +
+        '<span class="vr-job-val">' + (e.val ? fmt(e.val) : '—') + '</span>';
+      sec.appendChild(row);
+    });
+    body.appendChild(sec);
+  };
+
+  renderSection('🚚 Dispatched',        dispatched);
+  renderSection('✅ Ready for dispatch', ready);
+  renderSection('🔨 In progress',        inProgress);
+  renderSection('📋 Not started',        notStarted);
+
+  document.getElementById('vrOverlay').classList.add('open');
+}
+
+function closeValueReport() {
+  document.getElementById('vrOverlay').classList.remove('open');
+}
+
+function printValueReport() {
+  var now = new Date();
+  var printed = 'Printed ' + fmtDate(now) + ', ' + fmtTime(now);
+
+  // Re-run the same grouping logic so print always reflects current state
+  var CUTOFF = '2026-04-01';
+  var fmtV = function(v) {
+    return v ? '£' + Number(v).toLocaleString('en-GB', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) : '—';
+  };
+  var sumVal = function(arr) { return arr.reduce(function(t,e) { return t + e.val; }, 0); };
+
+  var dispatched = [], ready = [], inProgress = [], notStarted = [];
+  allJobs.forEach(function(job) {
+    var s     = getState(String(job.id));
+    var items = getProgressItems(s, job);
+    var done  = items.filter(Boolean).length;
+    var val   = parseFloat(String(job.orderVal).replace(/[^0-9.]/g, '')) || 0;
+    var isoDate = job.installDate ? fmtISO(job.installDate) : '';
+    if (isoDate && isoDate < CUTOFF) return;
+    if (!isoDate && done === 0) return;
+    var e = { id: job.id, name: job.name, modelSize: job.modelSize || '', val: val, date: isoDate, done: done, total: items.length,
+              framedDate: s.framedDate || '', sprayedDate: s.sprayedDate || '',
+              assembledDate: s.assembledDate || '', readyDate: s.readyForDispatchDate || '' };
+    if (s.dispatched)            dispatched.push(e);
+    else if (s.readyForDispatch) ready.push(e);
+    else if (done > 0)           inProgress.push(e);
+    else                         notStarted.push(e);
+  });
+
+  var completedVal = sumVal(dispatched) + sumVal(ready);
+  var progressVal  = sumVal(inProgress);
+  var totalVal     = completedVal + progressVal + sumVal(notStarted);
+
+  var card = function(cls, label, val, sub) {
+    return '<div class="vr-print-card ' + cls + '">' +
+      '<div class="vr-print-card-label">' + label + '</div>' +
+      '<div class="vr-print-card-val">' + fmtV(val) + '</div>' +
+      '<div class="vr-print-card-sub">' + sub + '</div></div>';
+  };
+
+  var fmtD = function(d) { return d ? d.substring(5).replace('-', '/') : '—'; };
+  var tableRows = function(arr, statusClass, statusLabel) {
+    return arr.sort(function(a,b){ return (a.date||'zzzz').localeCompare(b.date||'zzzz'); })
+      .map(function(e) {
+        return '<tr><td>' + esc(String(e.id)) + '</td>' +
+          '<td>' + esc(e.name) + '</td>' +
+          '<td>' + esc(e.modelSize) + '</td>' +
+          '<td>' + (e.date ? e.date.substring(5) : '—') + '</td>' +
+          '<td>' + fmtD(e.framedDate) + '</td>' +
+          '<td>' + fmtD(e.sprayedDate) + '</td>' +
+          '<td>' + fmtD(e.assembledDate) + '</td>' +
+          '<td>' + fmtD(e.readyDate) + '</td>' +
+          '<td class="val">' + fmtV(e.val) + '</td>' +
+          '<td class="' + statusClass + '">' + statusLabel + '</td></tr>';
+      }).join('');
+  };
+
+  var sectionHdr = function(label, arr) {
+    return '<div class="vr-print-section-hdr"><span>' + label + ' (' + arr.length + ' jobs)</span><span>' + fmtV(sumVal(arr)) + '</span></div>';
+  };
+
+  var thead = '<thead><tr><th>Job</th><th>Customer</th><th>Model</th><th>Install</th><th>Framed</th><th>Sprayed</th><th>Assembled</th><th>Ready</th><th>Value</th><th>Status</th></tr></thead>';
+  var allRows = [
+    dispatched.length ? sectionHdr('Dispatched', dispatched)    + '<table class="vr-print-table">' + thead + '<tbody>' + tableRows(dispatched,  'status-d', 'Dispatched') + '</tbody></table>' : '',
+    ready.length      ? sectionHdr('Ready for dispatch', ready)  + '<table class="vr-print-table">' + thead + '<tbody>' + tableRows(ready,       'status-r', 'Ready')      + '</tbody></table>' : '',
+    inProgress.length ? sectionHdr('In progress', inProgress)   + '<table class="vr-print-table">' + thead + '<tbody>' + tableRows(inProgress,  'status-p', 'In progress') + '</tbody></table>' : '',
+    notStarted.length ? sectionHdr('Not started', notStarted)   + '<table class="vr-print-table">' + thead + '<tbody>' + tableRows(notStarted,  'status-p', 'Not started') + '</tbody></table>' : ''
+  ].join('');
+
+  var html =
+    '<div class="vr-print-hdr"><h1>📊 BSC Production Value Report — 1 Apr 2026 onwards</h1><p>' + printed + '</p></div>' +
+    '<div class="vr-print-cards">' +
+      card('complete', '✓ Completed (dispatched + ready)', completedVal, (dispatched.length + ready.length) + ' jobs') +
+      card('', '🔨 In progress', progressVal, inProgress.length + ' jobs') +
+      card('', '📋 Not started', sumVal(notStarted), notStarted.length + ' jobs') +
+      card('', 'Total tracked', totalVal, allJobs.length + ' live jobs') +
+    '</div>' +
+    allRows;
+
+  var sec = document.getElementById('print-valuereport');
+  sec.innerHTML = html;
+  document.querySelectorAll('.print-section').forEach(function(s) { s.classList.remove('active'); });
+  sec.classList.add('active');
+  window.print();
+}
+
+function toggleWorkshopRequired(id) {
+  var state = getState(id);
+  state.workshopRequired = !state.workshopRequired;
+  saveState(id, state);
+  // Update the toggle button
+  var btn = document.getElementById('am-wreq-btn-' + id);
+  if (btn) {
+    btn.className = 'task-btn' + (state.workshopRequired ? ' done' : '');
+    btn.textContent = (state.workshopRequired ? '✓ ' : '') + 'Workshop work required';
+  }
+  // Show/hide the production section
+  var prod = document.getElementById('am-prod-' + id);
+  if (prod) {
+    prod.style.display = state.workshopRequired ? '' : 'none';
+    if (state.workshopRequired) {
+      setTimeout(function() {
+        var detail = document.getElementById('detail-' + id);
+        if (detail) detail.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }, 50);
+    }
+  }
+  // Refresh progress dots
+  updateProgressDisplay(id, state);
+}
+// ── PUSH REVCAP JOBS TO ROUTE PLANNER CACHE ─────────────────
+function buildRouteJobs() {
+  if (!allJobs || !allJobs.length) return null;
+  return allJobs.map(function(j) {
+    var dateStr = null;
+    if (j.installDate instanceof Date && !isNaN(j.installDate.getTime())) {
+      dateStr = j.installDate.getFullYear() + '-' +
+        String(j.installDate.getMonth() + 1).padStart(2, '0') + '-' +
+        String(j.installDate.getDate()).padStart(2, '0');
+    }
+    return {
+      id:              String(j.id),
+      jobNum:          String(j.id),
+      name:            j.name,
+      postcode:        j.postcode        || null,
+      amount:          j.orderVal ? (parseFloat(j.orderVal) || null) : null,
+      date:            dateStr,
+      product_type:    j.modelSize       || null,
+      supply_type:     j.supplyType      || null,
+      contactName:     null,
+      contactPhone:    null,
+      deliveryAddress: j.deliveryAddress || null,
+      notes:           null
+    };
+  });
+}
+
+function syncToRoutePlanner() {
+  var rpJobs = buildRouteJobs();
+  if (!rpJobs) return;
+  var btn = document.getElementById('btnSyncRoute');
+  var statusEl = document.getElementById('routeSyncStatus');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Syncing…'; }
+  if (statusEl) { statusEl.textContent = ''; }
+  google.script.run
+    .withSuccessHandler(function() {
+      console.log('[Route cache] Pushed ' + rpJobs.length + ' REVCAP jobs');
+      if (btn) { btn.disabled = false; btn.textContent = '🗺 Sync to Route Planner'; }
+      if (statusEl) { statusEl.textContent = '✓ Synced ' + rpJobs.length + ' jobs'; statusEl.style.color = '#27ae60'; }
+    })
+    .withFailureHandler(function(e) {
+      var msg = e && e.message ? e.message : String(e);
+      console.error('[Route cache] Push failed:', msg);
+      if (btn) { btn.disabled = false; btn.textContent = '🗺 Sync to Route Planner'; }
+      if (statusEl) { statusEl.textContent = '✗ Sync failed: ' + msg; statusEl.style.color = '#e74c3c'; }
+    })
+    .saveRevcapRouteJobs(JSON.stringify(rpJobs));
+}
+
+function pushJobsToRouteCache() {
+  var rpJobs = buildRouteJobs();
+  if (!rpJobs) return;
+  // Silent background sync on REVCAP load — no UI feedback here (use Sync button for that)
+  google.script.run
+    .withSuccessHandler(function() { console.log('[Route cache] Auto-pushed ' + rpJobs.length + ' jobs on load'); })
+    .withFailureHandler(function(e) { console.warn('[Route cache] Auto-push failed:', e && e.message); })
+    .saveRevcapRouteJobs(JSON.stringify(rpJobs));
+}
+
+// ── LIVE STATE POLLING ───────────────────────────────────────
+// Every 30s, silently fetch the full state from Google Sheets and
+// merge any changes made by other users — updating rows in-place
+// without collapsing open detail panels or resetting scroll.
+
+function startPolling() {
+  if (pollInterval) return; // already running
+  pollInterval = setInterval(pollState, POLL_MS);
+}
+
+function pollState() {
+  if (pollInFlight || pendingSaves > 0) return; // skip if we have saves in flight
+  pollInFlight = true;
+  google.script.run
+    .withSuccessHandler(function(remoteStates) {
+      pollInFlight = false;
+      if (!remoteStates) return;
+      var changed = [];
+      var metaChanged = false;
+      Object.keys(remoteStates).forEach(function(id) {
+        var remote = remoteStates[id];
+        var local  = jobStates[id];
+        if (JSON.stringify(remote) !== JSON.stringify(local)) {
+          jobStates[id] = remote;
+          if (id.charAt(0) === '_') { metaChanged = true; } else { changed.push(id); }
+        }
+      });
+      if (!changed.length && !metaChanged) return;
+      // Update each changed job in-place
+      changed.forEach(function(id) {
+        var state = jobStates[id];
+        var job   = allJobs.find(function(j) { return String(j.id) === id; });
+        if (!job) return;
+        updateRowClass(id, state);
+        updateProgressDisplay(id, state);
+        // If detail panel is open, rebuild it so ticks/dates reflect the new state
+        if (expanded[id]) {
+          var dtd = document.querySelector('#detail-' + id + ' td');
+          if (dtd) dtd.innerHTML = buildDetailHTML(id, job, state);
+        }
+        // Update save-status line to show it came from a teammate
+        var saveRow = document.getElementById('save-row-' + id);
+        if (saveRow && state.lastSaved) {
+          saveRow.innerHTML = '<span class="save-status saved">✓ Updated ' + state.lastSaved + '</span>';
+        }
+      });
+      checkLytAlert();
+      checkSkpAlert();
+      checkSedumAlert();
+    })
+    .withFailureHandler(function() {
+      pollInFlight = false; // silently ignore — next poll will retry
+    })
+    .getState();
+}
+
+// ── LYT ALERT ───────────────────────────────────────────────
+// ── SKP ALERT ───────────────────────────────────────────────
+var skpAlertDismissed = false;
+var skpAlertDismissedIds = '';
+
+function checkSkpAlert() {
+  var el = document.getElementById('skpAlert');
+  var jobsEl = document.getElementById('skpAlertJobs');
+  if (!el || !jobsEl || !allJobs.length) return;
+  var hits = allJobs.filter(function(j) {
+    if (!isBespoke(j)) return false;
+    if (isSiteVisit(j) || isAmendment(j)) return false;
+    var s = getState(String(j.id));
+    if (s.dispatched) return false;
+    return !s.skpDone;
+  }).sort(function(a, b) {
+    if (!a.installDate && !b.installDate) return 0;
+    if (!a.installDate) return 1;
+    if (!b.installDate) return -1;
+    return a.installDate - b.installDate;
+  });
+  if (!hits.length) { el.classList.remove('visible'); skpAlertDismissed = false; return; }
+  if (skpAlertDismissed) {
+    var currentIds = hits.map(function(j) { return String(j.id); }).join(',');
+    if (currentIds !== skpAlertDismissedIds) skpAlertDismissed = false;
+  }
+  if (skpAlertDismissed) return;
+  jobsEl.innerHTML = hits.map(function(j) {
+    return '#' + esc(String(j.id)) + ' ' + esc(j.name) + ' — ' + esc(j.modelSize) +
+      (j.installDate ? ' · installs ' + fmtDate(j.installDate) : '');
+  }).join('<br>');
+  el.classList.add('visible');
+}
+
+function dismissSkpAlert() {
+  var el = document.getElementById('skpAlert');
+  if (el) el.classList.remove('visible');
+  skpAlertDismissed = true;
+  var hits = allJobs.filter(function(j) {
+    if (!isBespoke(j)) return false;
+    var s = getState(String(j.id));
+    return !s.dispatched && !s.skpDone;
+  });
+  skpAlertDismissedIds = hits.map(function(j) { return String(j.id); }).join(',');
+}
+
+var lytAlertDismissed = false;
+
+function checkLytAlert() {
+  var el = document.getElementById('lytAlert');
+  var jobsEl = document.getElementById('lytAlertJobs');
+  if (!el || !jobsEl || !allJobs.length) return;
+  var hits = allJobs.filter(function(j) {
+    if (!isBespoke(j)) return false;
+    if (isSiteVisit(j) || isAmendment(j)) return false;
+    var s = getState(String(j.id));
+    if (s.dispatched) return false;
+    return s.skpDone && !s.lytDone;
+  }).sort(function(a, b) {
+    if (!a.installDate && !b.installDate) return 0;
+    if (!a.installDate) return 1;
+    if (!b.installDate) return -1;
+    return a.installDate - b.installDate;
+  });
+  if (!hits.length) { el.classList.remove('visible'); lytAlertDismissed = false; return; }
+  // Reset dismissed flag if a new job has appeared since dismissal
+  if (lytAlertDismissed) {
+    var currentIds = hits.map(function(j) { return String(j.id); }).join(',');
+    if (currentIds !== lytAlertDismissedIds) lytAlertDismissed = false;
+  }
+  if (lytAlertDismissed) return;
+  jobsEl.innerHTML = hits.map(function(j) {
+    return '#' + esc(String(j.id)) + ' ' + esc(j.name) + ' — ' + esc(j.modelSize) +
+      (j.installDate ? ' · installs ' + fmtDate(j.installDate) : '');
+  }).join('<br>');
+  el.classList.add('visible');
+}
+
+var lytAlertDismissedIds = '';
+function dismissLytAlert() {
+  var el = document.getElementById('lytAlert');
+  if (el) el.classList.remove('visible');
+  lytAlertDismissed = true;
+  // Record which jobs were dismissed so a new one resets it
+  var hits = allJobs.filter(function(j) {
+    if (!isBespoke(j)) return false;
+    var s = getState(String(j.id));
+    return !s.dispatched && s.skpDone && !s.lytDone;
+  });
+  lytAlertDismissedIds = hits.map(function(j) { return String(j.id); }).join(',');
+}
+
+// ── SEDUM ALERT ─────────────────────────────────────────────
+function checkSedumAlert() {
+  var alert = document.getElementById('sedumAlert');
+  var jobsEl = document.getElementById('sedumAlertJobs');
+  if (!alert || !jobsEl || !allJobs.length) return;
+  var today = new Date(); today.setHours(0, 0, 0, 0);
+  var cutoff = new Date(today); cutoff.setDate(cutoff.getDate() + 14);
+  var hits = allJobs.filter(function(j) {
+    var s = getState(String(j.id));
+    if (s.dispatched) return false;
+    if (!j.installDate || j.installDate < today || j.installDate > cutoff) return false;
+    return j.extras && j.extras.some(function(e) { return e.label === 'Green Roof'; });
+  }).sort(function(a, b) { return a.installDate - b.installDate; });
+  if (!hits.length) { alert.classList.remove('visible'); return; }
+  jobsEl.innerHTML = hits.map(function(j) {
+    var grExtra = j.extras.find(function(e) { return e.label === 'Green Roof'; });
+    return '#' + esc(String(j.id)) + ' ' + esc(j.name) +
+      (grExtra && grExtra.value && grExtra.value !== 'Yes' ? ' (' + esc(grExtra.value) + ')' : '') +
+      ' — installs ' + fmtDate(j.installDate);
+  }).join('<br>');
+  // Check if any job in the current reminder wasn't covered by the last order —
+  // if so, reset the checkbox so the new job gets noticed.
+  var sedumState = jobStates['_sedum'];
+  var currentIds = hits.map(function(j) { return String(j.id); });
+  if (sedumState && sedumState.ordered && sedumState.jobIds) {
+    var newJob = currentIds.some(function(id) { return sedumState.jobIds.indexOf(id) === -1; });
+    if (newJob) {
+      sedumState = { ordered: false, orderedDate: '', jobIds: [] };
+      jobStates['_sedum'] = sedumState;
+      google.script.run.saveJobState('_sedum', JSON.stringify(sedumState));
+    }
+  }
+  var chk = document.getElementById('sedumOrderedChk');
+  var byEl = document.getElementById('sedumOrderedBy');
+  if (chk) chk.checked = !!(sedumState && sedumState.ordered);
+  if (byEl) byEl.textContent = (sedumState && sedumState.ordered && sedumState.orderedDate) ? '✓ marked ' + sedumState.orderedDate : '';
+  alert.classList.add('visible');
+}
+
+function saveSedumOrdered(checked) {
+  // Capture the current job IDs so we can detect new jobs on future visits
+  var today = new Date(); today.setHours(0, 0, 0, 0);
+  var cutoff = new Date(today); cutoff.setDate(cutoff.getDate() + 14);
+  var currentIds = checked ? allJobs.filter(function(j) {
+    var s = getState(String(j.id));
+    if (s.dispatched) return false;
+    if (!j.installDate || j.installDate < today || j.installDate > cutoff) return false;
+    return j.extras && j.extras.some(function(e) { return e.label === 'Green Roof'; });
+  }).map(function(j) { return String(j.id); }) : [];
+  var state = { ordered: checked, orderedDate: checked ? fmtDate(new Date()) : '', jobIds: currentIds };
+  jobStates['_sedum'] = state;
+  var byEl = document.getElementById('sedumOrderedBy');
+  if (byEl) byEl.textContent = checked ? '✓ marked ' + state.orderedDate : '';
+  google.script.run
+    .withSuccessHandler(function() { console.log('[saveSedumOrdered] saved'); })
+    .withFailureHandler(function(err) { console.error('[saveSedumOrdered] failed:', err && err.message); })
+    .saveJobState('_sedum', JSON.stringify(state));
+}
+
+function toggleShowDispatched() {
+  showDispatched = !showDispatched;
+  var btn = document.getElementById('btnShowDispatched');
+  btn.classList.toggle('active', showDispatched);
+  btn.textContent = showDispatched ? 'Hide dispatched' : 'Show dispatched';
+  render();
+}
+function toggleHideSiteVisits() {
+  hideSiteVisits = !hideSiteVisits;
+  var btn = document.getElementById('btnHideSiteVisits');
+  btn.classList.toggle('active', hideSiteVisits);
+  btn.textContent = hideSiteVisits ? 'Show site visits' : 'Hide site visits';
+  render();
+}
+
+function updateRowClass(id, state) {
+  var row = document.getElementById('row-' + id); if (!row) return;
+  var job = allJobs.find(function(j) { return String(j.id) === id; }) || { supplyType: '' };
+  var isStarted = (!!state.tgCutDate || !!state.cut50x50Date) && !state.readyForDispatch && !state.dispatched;
+  row.className = row.className.replace(/\b(dispatched|dispatch-ready|job-started|type-delivery|type-collection|type-amendment|type-visit)\b/g, '').trim();
+  if (state.dispatched)            row.classList.add('dispatched');
+  else if (state.readyForDispatch) row.classList.add('dispatch-ready');
+  else if (isStarted)              row.classList.add('job-started');
+  else { var tc = typeClass(job.supplyType); if (tc !== 'install') row.classList.add('type-' + tc); }
+}
+
+function updateProgressDisplay(id, state) {
+  var job = allJobs.find(function(j) { return String(j.id) === id; }) || {};
+  var prog = calcProgress(state, job);
+  var dotItems = getProgressItems(state, job);
+  var dotsEl = document.getElementById('dots-' + id);
+  if (dotsEl) dotsEl.innerHTML = dotItems.map(function(d) { return '<span style="color:' + (d ? 'var(--green)' : 'var(--border-dark)') + '">●</span>'; }).join('');
+  var progEl = document.getElementById('prog-' + id);
+  if (progEl) { progEl.textContent = prog.done + '/' + prog.total; progEl.className = 'prog-count' + (prog.done === prog.total ? ' complete' : ''); }
+  // Update Ready cell
+  var readyDisp = document.getElementById('ready-disp-' + id);
+  if (readyDisp) readyDisp.innerHTML = state.readyForDispatch ? '<span style="color:var(--green);font-weight:600;font-size:11px">Ready</span>' : '<span style="color:var(--text-light)">—</span>';
+  // Keep spray/assembly plan cells in sync when ticked but no date set
+  var sprayDisp = document.getElementById('spray-disp-' + id);
+  if (sprayDisp && !state.sprayDate)
+    sprayDisp.innerHTML = state.sprayed   ? '<span style="color:var(--green);font-weight:600">Sprayed</span>'   : '<span style="color:var(--text-light)">—</span>';
+  var assyDisp = document.getElementById('assy-disp-' + id);
+  if (assyDisp && !state.assemblyDate)
+    assyDisp.innerHTML  = state.assembled ? '<span style="color:var(--green);font-weight:600">Assembled</span>' : '<span style="color:var(--text-light)">—</span>';
+}
+
+function getProgressItems(state, job) {
+  if (isSiteVisit(job)) return [!!state.siteVisitCompleted];
+  if (isAmendment(job)) {
+    if (state.workshopRequired)
+      return [!!state.tgCutDate, !!state.cut50x50Date, !!state.framed, !!state.sprayed, !!state.assembled, !!state.workCompleted, !!state.readyForDispatch];
+    return [!!state.workCompleted, !!state.readyForDispatch];
+  }
+  return [!!state.tgCutDate, !!state.cut50x50Date, !!state.framed, !!state.sprayed, !!state.assembled, !!state.readyForDispatch];
+}
+function calcProgress(state, job) {
+  var items = getProgressItems(state, job);
+  return { done: items.filter(Boolean).length, total: items.length };
+}
+function fieldLabel(f) {
+  return { framed: 'Framed', sprayed: 'Sprayed', assembled: 'Assembled',
+           readyForDispatch: 'Ready for Dispatch', siteVisitCompleted: 'Visit Completed',
+           workCompleted: 'Work Completed',
+           baseFrame: 'Base Frame', baseBoard: 'Base Board', shelves: 'Shelves',
+           skirting: 'Skirting', braces: 'Braces',
+           skpDone: 'SKP Done', lytDone: 'LYT Done' }[f] || f;
+}
+function typeClass(t) {
+  if (!t) return 'install';
+  var l = t.toLowerCase();
+  if (l === 'delivery')        return 'delivery';
+  if (l === 'collection')      return 'collection';
+  if (/amendment/.test(l))     return 'amendment';
+  if (/site.?visit/.test(l))   return 'visit';
+  return 'install';
+}
+
+// ── STATE ────────────────────────────────────────────────────
+function getState(id) {
+  if (!jobStates[id]) jobStates[id] = defaultState();
+  var s = jobStates[id];
+  if (s.tgCutDate          === undefined) s.tgCutDate          = '';
+  if (s.cut50x50Date       === undefined) s.cut50x50Date       = '';
+  if (s.framedDate         === undefined) s.framedDate         = '';
+  if (s.sprayedDate        === undefined) s.sprayedDate        = '';
+  if (s.dispatched         === undefined) s.dispatched         = false;
+  if (s.notes              === undefined) s.notes              = '';
+  if (s.siteVisitCompleted === undefined) s.siteVisitCompleted = false;
+  if (s.workCompleted      === undefined) s.workCompleted      = false;
+  if (s.lidComplete        === undefined) s.lidComplete        = false;
+  if (s.workshopRequired   === undefined) s.workshopRequired   = false;
+  if (s.baseFrame     === undefined) s.baseFrame     = false;
+  if (s.baseFrameDate === undefined) s.baseFrameDate = '';
+  if (s.baseBoard     === undefined) s.baseBoard     = false;
+  if (s.baseBoardDate === undefined) s.baseBoardDate = '';
+  if (s.shelves       === undefined) s.shelves       = false;
+  if (s.shelvesDate   === undefined) s.shelvesDate   = '';
+  if (s.skirting      === undefined) s.skirting      = false;
+  if (s.skirtingDate  === undefined) s.skirtingDate  = '';
+  if (s.braces        === undefined) s.braces        = false;
+  if (s.bracesDate    === undefined) s.bracesDate    = '';
+  return s;
+}
+function defaultState() {
+  return { tgCutDate: '', cut50x50Date: '', framed: false, framedDate: '',
+           sprayDate: '', sprayed: false, sprayedDate: '', assemblyDate: '',
+           assembled: false, assembledDate: '', readyForDispatch: false, readyForDispatchDate: '',
+           dispatched: false, notes: '', siteVisitCompleted: false, workCompleted: false,
+           lidComplete: false, workshopRequired: false, lastSaved: '',
+           baseFrame: false, baseFrameDate: '', baseBoard: false, baseBoardDate: '',
+           shelves: false, shelvesDate: '', skirting: false, skirtingDate: '',
+           braces: false, bracesDate: '' };
+}
+
+function saveState(id, state) {
+  state.lastSaved = fmtTime(new Date());
+  jobStates[id]   = state;
+
+  var stateJson = JSON.stringify(state);
+  console.log('[saveState] job=' + id + ' sprayDate=' + state.sprayDate + ' assemblyDate=' + state.assemblyDate);
+
+  // Optimistic UI update
+  var saveRow = document.getElementById('save-row-' + id);
+  if (saveRow) saveRow.innerHTML = '<span class="save-status saving">Saving…</span>';
+
+  // Track pending saves — show header indicator, warn on unload
+  pendingSaves++;
+  updateSavingIndicator();
+
+  // Persist to Google Sheet
+  google.script.run
+    .withSuccessHandler(function() {
+      pendingSaves = Math.max(0, pendingSaves - 1);
+      updateSavingIndicator();
+      console.log('[saveState] SUCCESS job=' + id);
+      var el = document.getElementById('save-row-' + id);
+      if (el) el.innerHTML = '<span class="save-status saved">✓ Saved ' + state.lastSaved + '</span>';
+    })
+    .withFailureHandler(function(err) {
+      pendingSaves = Math.max(0, pendingSaves - 1);
+      updateSavingIndicator();
+      console.error('[saveState] FAILED job=' + id + ' error=' + (err && err.message));
+      var el = document.getElementById('save-row-' + id);
+      if (el) el.innerHTML = '<span class="save-status error">Save failed — ' + esc(err && err.message || 'unknown') + '</span>';
+    })
+    .saveJobState(id, stateJson);
+}
+
+function updateSavingIndicator() {
+  var ind = document.getElementById('savingIndicator');
+  if (ind) ind.style.display = pendingSaves > 0 ? '' : 'none';
+}
+
+window.addEventListener('beforeunload', function(e) {
+  if (pendingSaves > 0) {
+    e.preventDefault();
+    e.returnValue = 'A save is still in progress — your changes may be lost if you leave now.';
+    return e.returnValue;
+  }
+});
+
+// ── PRINT ────────────────────────────────────────────────────
+function enablePrintButtons(on) {
+  ['btnPrintTG','btnPrint50','btnPrintLids','btnPrintAll','btnPrintBasePrep','btnSyncRoute'].forEach(function(id) { document.getElementById(id).disabled = !on; });
+}
+function doPrint(type) {
+  document.querySelectorAll('.print-section').forEach(function(s) { s.classList.remove('active'); });
+  var s = document.getElementById('print-' + type);
+  s.innerHTML = buildPrintHTML(type); s.classList.add('active'); window.print();
+}
+function buildPrintHTML(type) {
+  var now = new Date(), p = 'Printed ' + fmtDate(now) + ', ' + fmtTime(now);
+  if (type === 'tg')          return buildCuttingPrint('T&G Cutting Station',   p, 'tgCutDate');
+  if (type === '50x50')       return buildCuttingPrint('50×50 Cutting Station', p, 'cut50x50Date');
+  if (type === 'lids')        return buildLidsPrint(p);
+  if (type === 'uncompleted') return buildUncompletedPrint(p);
+  if (type === 'baseprep')    return buildBasePrepPrint(p);
+  return '';
+}
+function buildCuttingPrint(title, printedAt, cutField) {
+  var today = new Date(); today.setHours(0, 0, 0, 0);
+  var withDate = [], withoutDate = [];
+  allJobs.forEach(function(j) {
+    var s = getState(String(j.id));
+    if (s.dispatched || isAmendment(j) || isSiteVisit(j) || s.readyForDispatch || s.framed) return;
+    if (s[cutField]) {
+      withDate.push({ job: j, state: s });
+    } else {
+      if (!j.installDate || j.installDate >= today) withoutDate.push({ job: j, state: s });
+    }
+  });
+  withDate.sort(function(a, b) { return (a.state[cutField] || '').localeCompare(b.state[cutField] || ''); });
+  withoutDate.sort(function(a, b) {
+    if (!a.job.installDate && !b.job.installDate) return 0;
+    if (!a.job.installDate) return 1; if (!b.job.installDate) return -1;
+    return a.job.installDate - b.job.installDate;
+  });
+  var rows = '';
+  if (withDate.length) {
+    rows += '<tr class="print-group-hdr started"><td colspan="6">▶ Started — cut date recorded</td></tr>';
+    withDate.forEach(function(x) {
+      rows += '<tr><td>#' + esc(String(x.job.id)) + '</td><td>' + esc(x.job.name) + '</td><td>' + esc(x.job.modelSize || '—') + '</td>' +
+        '<td>' + esc(x.job.installDate ? fmtDate(x.job.installDate) : '—') + '</td><td>' + esc(x.job.colour || '—') + '</td>' +
+        '<td>' + esc(fmtDateFromStr(x.state[cutField])) + '</td></tr>';
+    });
+  }
+  if (withoutDate.length) {
+    rows += '<tr class="print-group-hdr"><td colspan="6">▶ Up next — no cut date yet (by install date)</td></tr>';
+    withoutDate.forEach(function(x) {
+      rows += '<tr><td>#' + esc(String(x.job.id)) + '</td><td>' + esc(x.job.name) + '</td><td>' + esc(x.job.modelSize || '—') + '</td>' +
+        '<td>' + esc(x.job.installDate ? fmtDate(x.job.installDate) : '—') + '</td><td>' + esc(x.job.colour || '—') + '</td>' +
+        '<td><span class="print-sign-box"></span></td></tr>';
+    });
+  }
+  return '<div class="print-section active"><div class="print-header"><h1>BSC — ' + esc(title) + '</h1><p>' + esc(printedAt) + '</p></div>' +
+    '<table class="print-table"><thead><tr><th>ID</th><th>Project</th><th>Model</th><th>Install Date</th><th>Colour</th><th>Cut Start</th></tr></thead>' +
+    '<tbody>' + (rows || '<tr><td colspan="6" style="color:#999;font-style:italic;padding:10px">No outstanding jobs.</td></tr>') + '</tbody></table></div>';
+}
+function buildLidsPrint(printedAt) {
+  var jobs = allJobs.map(function(j) { return { job: j, state: getState(String(j.id)) }; })
+    .filter(function(x) { return !x.state.dispatched && !isAmendment(x.job) && !isSiteVisit(x.job) && x.state.assemblyDate; })
+    .sort(function(a, b) { return (a.state.assemblyDate || '').localeCompare(b.state.assemblyDate || ''); });
+  var rows = jobs.map(function(x) {
+    return '<tr><td>#' + esc(String(x.job.id)) + '</td><td>' + esc(x.job.name) + '</td><td>' + esc(x.job.modelSize || '—') + '</td>' +
+      '<td>' + esc(x.job.colour || '—') + '</td><td><strong>' + esc(fmtDateFromStr(x.state.assemblyDate)) + '</strong></td>' +
+      '<td>' + (x.state.assembled ? '<span class="tick">✓ Done</span>' : '<span class="cross">Pending</span>') + '</td></tr>';
+  }).join('');
+  return '<div class="print-section active"><div class="print-header"><h1>BSC — Lid List</h1><p>' + esc(printedAt) + ' · Sorted by assembly date</p></div>' +
+    '<table class="print-table"><thead><tr><th>ID</th><th>Project</th><th>Model</th><th>Colour</th><th>Lid Required By</th><th>Status</th></tr></thead>' +
+    '<tbody>' + (rows || '<tr><td colspan="6" style="color:#999;font-style:italic;padding:10px">No jobs with assembly dates set.</td></tr>') + '</tbody></table></div>';
+}
+function buildUncompletedPrint(printedAt) {
+  var jobs = allJobs.filter(function(j) {
+    var s = getState(String(j.id));
+    return !s.dispatched;
+  }).sort(function(a, b) {
+    if (!a.installDate && !b.installDate) return 0;
+    if (!a.installDate) return 1; if (!b.installDate) return -1;
+    return a.installDate - b.installDate;
+  });
+  // Type background colours (matching dashboard row colours)
+  var typeBg = { install: '#e8f0e6', delivery: '#e8f4fd', collection: '#f3e8fd', amendment: '#fff4e0', visit: '#e0f7f4' };
+  var rows = jobs.map(function(j) {
+    var s  = getState(String(j.id));
+    var tc = typeClass(j.supplyType);
+    var projBg = typeBg[tc] || '#e8f0e6';
+    var tick = function(v) { return v ? '<span class="print-cb-checked">✓</span>' : '<span class="print-cb-empty"></span>'; };
+    var projCell = '<td style="background:' + projBg + ';font-weight:500">' + esc(j.name) + (j.supplyType ? '<br><span style="font-size:10px;font-weight:400;color:#666;text-transform:uppercase">' + esc(j.supplyType) + '</span>' : '') + '</td>';
+    // Build extras text (skip colour/value — shown in their own columns)
+    var extraInfo = j.extras.map(function(e) {
+      return e.label === 'Additional Info' ? esc(e.value) : '<strong>' + esc(e.label) + ':</strong> ' + esc(e.value);
+    }).join('  ·  ');
+    if (isSiteVisit(j)) {
+      var svInfo = extraInfo || '<em style="color:#888">No additional info</em>';
+      return '<tr>' +
+        '<td>#' + esc(String(j.id)) + '</td>' + projCell +
+        '<td>' + esc(j.modelSize || '—') + '</td>' +
+        '<td>' + esc(j.colour || '—') + '</td>' +
+        '<td>' + esc(j.installDate ? fmtDate(j.installDate) : '—') + '</td>' +
+        '<td style="font-size:11px">' + svInfo + '</td>' +
+        '<td colspan="4" style="color:#888;font-style:italic;font-size:11px">Site visit</td></tr>';
+    }
+    if (isAmendment(j)) {
+      var amNotes = s.notes ? esc(s.notes.substring(0, 100)) + (s.notes.length > 100 ? '…' : '') : '';
+      var amInfo = [extraInfo, amNotes ? '<em>Prep: ' + amNotes + '</em>' : ''].filter(Boolean).join('  ·  ') || '—';
+      return '<tr>' +
+        '<td>#' + esc(String(j.id)) + '</td>' + projCell +
+        '<td>' + esc(j.modelSize || '—') + '</td>' +
+        '<td>' + esc(j.colour || '—') + '</td>' +
+        '<td>' + esc(j.installDate ? fmtDate(j.installDate) : '—') + '</td>' +
+        '<td style="font-size:11px">' + amInfo + '</td>' +
+        '<td colspan="3" style="text-align:center;color:#aaa;font-style:italic;font-size:11px">—</td>' +
+        '<td style="text-align:center">' + tick(s.workCompleted) + '</td></tr>';
+    }
+    var startInfo = '';
+    if (s.tgCutDate)    startInfo += '<strong>T&amp;G:</strong> ' + fmtDateFromStr(s.tgCutDate);
+    if (s.cut50x50Date) startInfo += (startInfo ? '  ·  ' : '') + '<strong>50×50:</strong> ' + fmtDateFromStr(s.cut50x50Date);
+    var stdInfo = [extraInfo, startInfo].filter(Boolean).join('  ·  ') || '—';
+    return '<tr>' +
+      '<td>#' + esc(String(j.id)) + '</td>' + projCell +
+      '<td>' + esc(j.modelSize || '—') + '</td>' +
+      '<td>' + esc(j.colour || '—') + '</td>' +
+      '<td>' + esc(j.installDate ? fmtDate(j.installDate) : '—') + '</td>' +
+      '<td style="font-size:11px">' + stdInfo + '</td>' +
+      '<td style="text-align:center">' + tick(s.framed)      + '</td>' +
+      '<td style="text-align:center">' + tick(s.sprayed)     + '</td>' +
+      '<td style="text-align:center">' + tick(s.lidComplete) + '</td>' +
+      '<td style="text-align:center">' + tick(s.assembled)   + '</td></tr>';
+  }).join('');
+  return '<div class="print-section active"><div class="print-header"><h1>BSC — All Uncompleted Jobs</h1><p>' + esc(printedAt) + ' · ' + jobs.length + ' jobs</p></div>' +
+    '<table class="print-table"><thead><tr><th>ID</th><th>Project</th><th>Model</th><th>Colour</th><th>Install Date</th><th>Job Info</th><th>Framed</th><th>Sprayed</th><th>Lid</th><th>Assembled</th></tr></thead>' +
+    '<tbody>' + (rows || '<tr><td colspan="10" style="color:#999;font-style:italic;padding:10px">No uncompleted jobs.</td></tr>') + '</tbody></table></div>';
+}
+function buildBasePrepPrint(printedAt) {
+  var jobs = allJobs.filter(function(j) {
+    var s = getState(String(j.id));
+    return !s.dispatched;
+  }).sort(function(a, b) {
+    if (!a.installDate && !b.installDate) return 0;
+    if (!a.installDate) return 1; if (!b.installDate) return -1;
+    return a.installDate - b.installDate;
+  });
+  function bpCell(done, dateStr) {
+    if (done) {
+      return '<td style="text-align:center;font-size:12px"><strong>✓</strong>' + (dateStr ? '<br><span style="font-size:10px;color:#555">' + esc(fmtDateFromStr(dateStr)) + '</span>' : '') + '</td>';
+    }
+    return '<td style="text-align:center"><span class="print-cb-empty"></span></td>';
+  }
+  var rows = jobs.map(function(j) {
+    var s = getState(String(j.id));
+    return '<tr>' +
+      '<td>#' + esc(String(j.id)) + '</td>' +
+      '<td>' + esc(j.name) + '</td>' +
+      '<td>' + esc(j.modelSize || '—') + '</td>' +
+      bpCell(s.baseFrame,  s.baseFrameDate) +
+      bpCell(s.baseBoard,  s.baseBoardDate) +
+      bpCell(s.shelves,    s.shelvesDate)   +
+      bpCell(s.skirting,   s.skirtingDate)  +
+      bpCell(s.braces,     s.bracesDate)    +
+      '<td></td>' +
+    '</tr>';
+  }).join('');
+  return '<div class="print-section active" style="page:auto">' +
+    '<div class="print-header"><h1>BSC — Base Prep</h1><p>' + esc(printedAt) + ' · ' + jobs.length + ' jobs</p></div>' +
+    '<table class="print-table">' +
+      '<thead><tr>' +
+        '<th style="width:5%">ID</th>' +
+        '<th style="width:22%">Project</th>' +
+        '<th style="width:13%">Model</th>' +
+        '<th style="width:8%;text-align:center">Base Frame</th>' +
+        '<th style="width:8%;text-align:center">Base Board</th>' +
+        '<th style="width:8%;text-align:center">Shelves</th>' +
+        '<th style="width:8%;text-align:center">Skirting</th>' +
+        '<th style="width:8%;text-align:center">Braces</th>' +
+        '<th style="width:20%">Other</th>' +
+      '</tr></thead>' +
+      '<tbody>' + (rows || '<tr><td colspan="9" style="color:#999;font-style:italic;padding:10px">No active jobs.</td></tr>') + '</tbody>' +
+    '</table></div>';
+}
+
+// ── DATE UTILS ───────────────────────────────────────────────
+function fmtDate(d) {
+  if (!d) return '—';
+  var dt = d instanceof Date ? d : new Date(d); if (isNaN(dt.getTime())) return '—';
+  return DAYS[dt.getDay()] + ', ' + String(dt.getDate()).padStart(2, '0') + ' ' + MONTHS[dt.getMonth()];
+}
+function fmtDateFromStr(str) {
+  if (!str) return '—';
+  var dt = new Date(str + 'T00:00:00'); if (isNaN(dt.getTime())) return str;
+  return DAYS[dt.getDay()] + ', ' + String(dt.getDate()).padStart(2, '0') + ' ' + MONTHS[dt.getMonth()];
+}
+function fmtTime(d) { return d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }); }
+function todayStr() { var d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
+function esc(s) { return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+function setStatus(type, msg) { document.getElementById('statusDot').className = 'status-dot ' + type; document.getElementById('statusText').textContent = msg; }
+
+// ── VIEW SWITCHING ────────────────────────────────────────────
+var activeView = 'jobs';
+
+function switchView(v) {
+  activeView = v;
+  var isLabels = v === 'labels';
+  document.body.classList.toggle('lbl-view', isLabels);
+  document.getElementById('tabJobs').classList.toggle('active',   !isLabels);
+  document.getElementById('tabLabels').classList.toggle('active',  isLabels);
+  if (isLabels) { lbl_renderBtns(); lbl_update(); window.scrollTo(0, 0); }
+  if (!isLabels && lbl_currentJobId) {
+    setTimeout(function() {
+      var el = document.getElementById('detail-' + lbl_currentJobId) ||
+               document.getElementById('row-'    + lbl_currentJobId);
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 50);
+  }
+}
+
+function openLabels(jobId) {
+  var job = allJobs.find(function(j) { return String(j.id) === String(jobId); });
+  if (!job) { switchView('labels'); return; }
+
+  // Surname only: "Smith, John" → "Smith"; no comma → full name
+  var nameRaw  = job.name || '';
+  var commaIdx = nameRaw.indexOf(',');
+  var displayName = commaIdx > 0 ? nameRaw.slice(0, commaIdx).trim() : nameRaw;
+
+  document.getElementById('lblJobNum').value   = String(job.id);
+  document.getElementById('lblCustName').value  = displayName;
+  document.getElementById('lblProdCode').value  = (job.modelSize || job.model || '').trim();
+  document.getElementById('lblColour').value    = (job.colour || '').trim();
+
+  lbl_currentJobId = jobId;
+  var savedState = getState(String(jobId));
+  lbl_selected    = savedState.lblSelected ? savedState.lblSelected.slice() : LBL_DEFAULT_SELECTED.slice();
+  lbl_customs     = savedState.lblCustoms  ? savedState.lblCustoms.slice()  : [];
+  lbl_currentPage = 0;
+  switchView('labels');
+}
+
+// ── LABEL GENERATOR ───────────────────────────────────────────
+var LBL_DEFAULTS         = ['RHS','LHS','Door 1/2','Door 2/2','Back 1/2','Back 2/2','Base','Lid','Return 1/2','Return 2/2','Bifold 1/4','Bifold 2/4','Bifold 3/4','Bifold 4/4'];
+var LBL_DEFAULT_SELECTED = ['RHS','LHS','Door 1/2','Door 2/2','Back 1/2','Base','Lid'];
+var lbl_selected     = [];
+var lbl_customs      = [];
+var lbl_currentPage  = 0;
+var lbl_currentJobId = null;
+
+function lbl_saveToJob() {
+  if (!lbl_currentJobId) return;
+  var state = getState(String(lbl_currentJobId));
+  state.lblSelected = lbl_selected.slice();
+  state.lblCustoms  = lbl_customs.slice();
+  saveState(String(lbl_currentJobId), state);
+}
+
+function lbl_renderBtns() {
+  var el = document.getElementById('lblCompRow');
+  if (!el) return;
+  var all = LBL_DEFAULTS.concat(lbl_customs);
+  el.innerHTML = all.map(function(c) {
+    return '<button class="lbl-comp-btn ' + (lbl_selected.indexOf(c) >= 0 ? 'on' : '') + '" ' +
+      'data-comp="' + esc(c) + '" onclick="lbl_toggle(this.dataset.comp)">' + esc(c) + '</button>';
+  }).join('');
+}
+
+function lbl_toggle(c) {
+  var i = lbl_selected.indexOf(c);
+  i >= 0 ? lbl_selected.splice(i, 1) : lbl_selected.push(c);
+  lbl_renderBtns(); lbl_currentPage = 0; lbl_update();
+  lbl_saveToJob();
+}
+
+function lbl_addCustom() {
+  var inp = document.getElementById('lblCustomInput');
+  var v   = inp.value.trim();
+  if (!v) return;
+  if (LBL_DEFAULTS.indexOf(v) < 0 && lbl_customs.indexOf(v) < 0) lbl_customs.push(v);
+  if (lbl_selected.indexOf(v) < 0) lbl_selected.push(v);
+  inp.value = '';
+  lbl_renderBtns(); lbl_currentPage = 0; lbl_update();
+  lbl_saveToJob();
+}
+
+function lbl_clearAll() {
+  lbl_selected = []; lbl_customs = [];
+  lbl_currentPage = 0; lbl_renderBtns(); lbl_update();
+  lbl_saveToJob();
+}
+
+function lbl_changePage(dir) {
+  var total = Math.ceil(lbl_selected.length / 4);
+  lbl_currentPage = Math.max(0, Math.min(lbl_currentPage + dir, total - 1));
+  lbl_update();
+}
+
+var LBL_TYPE_COLOURS = {
+  'RI': '#2d5a27',  // Roll-In — brand green
+  'BS': '#1a3d6b',  // Bin Store — navy
+  'PB': '#7c3519',  // Pedalbase — rust
+  'SK': '#4a1a7a',  // Spokeshed — purple
+  'VS': '#1a5a5a',  // V-Shed — teal
+  'GS': '#3d5a1a',  // Garden Store — olive
+  'TS': '#5a3a1a',  // Tool Store — dark brown
+  'BESPOKE': '#111111'
+};
+
+function lbl_getTypeColour(code) {
+  var c = (code || '').toUpperCase();
+  if (/BESPOKE/.test(c))              return '#111111';
+  if (/ROLL.?IN|^RI\d/.test(c))       return '#2d5a27';
+  if (/BIN.?STORE|^BS\d/.test(c))     return '#1a3d6b';
+  if (/PEDAL|^PB/.test(c))            return '#7c3519';
+  if (/SPOKE|^SK/.test(c))            return '#4a1a7a';
+  if (/V.?SHED|^VS/.test(c))          return '#1a5a5a';
+  if (/GARDEN.?STORE|^GS/.test(c))    return '#3d5a1a';
+  if (/TOOL.?STORE|^TS/.test(c))      return '#5a3a1a';
+  return '#111111';
+}
+
+function lbl_getVals() {
+  var pcEl  = document.getElementById('lblProdCode');
+  var clEl  = document.getElementById('lblColour');
+  var jnEl  = document.getElementById('lblJobNum');
+  var cnEl  = document.getElementById('lblCustName');
+  if (!pcEl || !clEl || !jnEl || !cnEl) return { jobNum:'—', prodCode:'—', custName:'—', colour:'', headerBg:'#2d5a27' };
+  var prodCode = pcEl.value.trim() || '—';
+  var colour   = clEl.value.trim();
+  return {
+    jobNum:   jnEl.value.trim()  || '—',
+    prodCode: prodCode,
+    custName: cnEl.value.trim()  || '—',
+    colour:   colour,
+    headerBg: lbl_getTypeColour(prodCode)
+  };
+}
+
+function lbl_labelInner(v, comp) {
+  return '<div class="lbl-top" style="background:' + v.headerBg + ';">' +
+      '<span class="lbl-jobnum">#' + esc(v.jobNum)   + '</span>' +
+      '<span class="lbl-code">'   + esc(v.prodCode)  + '</span>' +
+    '</div>' +
+    '<div class="lbl-mid">' +
+      '<div class="lbl-customer">' + esc(v.custName) + '</div>' +
+      (v.colour ? '<div class="lbl-colour">' + esc(v.colour) + '</div>' : '') +
+    '</div>' +
+    '<div class="lbl-bottom">' +
+      '<div class="lbl-comp">' + esc(comp) + '</div>' +
+    '</div>';
+}
+
+function lbl_update() {
+  var v     = lbl_getVals();
+  var total = Math.max(1, Math.ceil(lbl_selected.length / 4));
+  document.getElementById('lblPageLabel').textContent = 'Sheet ' + (lbl_currentPage + 1) + ' of ' + total;
+  document.getElementById('lblPrevBtn').disabled  = lbl_currentPage <= 0;
+  document.getElementById('lblNextBtn').disabled  = lbl_currentPage >= total - 1;
+  document.getElementById('lblPrintBtn').disabled = lbl_selected.length === 0;
+  document.getElementById('lblCountRow').innerHTML = lbl_selected.length
+    ? lbl_selected.length + ' component' + (lbl_selected.length > 1 ? 's' : '') +
+      ' · ' + total + ' sheet' + (total > 1 ? 's' : '') + ' of 4 labels each'
+    : '';
+
+  var pageComps = lbl_selected.slice(lbl_currentPage * 4, lbl_currentPage * 4 + 4);
+  while (pageComps.length < 4) pageComps.push(null);
+  document.getElementById('lblPreviewSheet').innerHTML = pageComps.map(function(c) {
+    return c ? '<div class="shed-label">' + lbl_labelInner(v, c) + '</div>'
+             : '<div class="lbl-empty-cell">empty</div>';
+  }).join('');
+
+  // Build print area (all sheets)
+  var printArea = document.getElementById('lblPrintArea');
+  if (!lbl_selected.length) { printArea.innerHTML = ''; return; }
+  var totalSheets = Math.ceil(lbl_selected.length / 4);
+  var html = '';
+  for (var s = 0; s < totalSheets; s++) {
+    var comps = lbl_selected.slice(s * 4, s * 4 + 4);
+    while (comps.length < 4) comps.push(null);
+    html += '<div class="' + (s === 0 ? 'lbl-sheet-first' : 'lbl-sheet-break') + '">' +
+      comps.map(function(c) {
+        return c ? '<div class="shed-label">' + lbl_labelInner(v, c) + '</div>'
+                 : '<div class="lbl-empty-print-cell"></div>';
+      }).join('') + '</div>';
+  }
+  printArea.innerHTML = html;
+}
+
+function lbl_doPrint() {
+  // Apps Script runs inside nested iframes, which causes Chrome to ignore @page
+  // CSS rules. Opening a top-level popup window means @page rules apply correctly.
+  var printArea = document.getElementById('lblPrintArea');
+  if (!printArea || !printArea.innerHTML.trim()) { return; }
+
+  var win = window.open('', '_blank', 'width=400,height=300');
+  if (!win) {
+    // Popup blocked — fall back to the inline approach
+    document.body.classList.add('printing-labels');
+    window.print();
+    return;
+  }
+
+  win.document.write(
+    '<!DOCTYPE html><html><head><meta charset="utf-8"><style>' +
+    '@page { size: A4 landscape; margin: 8mm 11.5mm; }' +
+    '* { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; box-sizing: border-box; }' +
+    'html, body { margin: 0; padding: 0; background: white; }' +
+    '#lp { display: grid; grid-template-columns: 137mm 137mm; grid-template-rows: 97mm 97mm; gap: 0; }' +
+    '.lbl-sheet-first { display: contents; }' +
+    '.lbl-sheet-break { page-break-before: always; display: contents; }' +
+    '.shed-label { border: 1.5pt solid #000; font-family: Arial, sans-serif; background: white; color: #000; display: flex; flex-direction: column; overflow: hidden; width: 137mm; height: 97mm; }' +
+    '.lbl-top { color: white; padding: 4mm 7mm 3mm; display: flex; align-items: baseline; gap: 5mm; flex-shrink: 0; }' +
+    '.lbl-jobnum { font-size: 22pt; font-weight: 700; letter-spacing: 0.03em; opacity: 0.75; }' +
+    '.lbl-code { font-size: 26pt; font-weight: 900; letter-spacing: 0.06em; }' +
+    '.lbl-mid { padding: 3mm 7mm 2mm; flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 2mm; border-bottom: 1.5pt solid #000; }' +
+    '.lbl-customer { font-size: 24pt; font-weight: 900; letter-spacing: 0.01em; text-transform: uppercase; }' +
+    '.lbl-colour { font-size: 13pt; color: #555; letter-spacing: 0.07em; text-transform: uppercase; font-weight: 600; }' +
+    '.lbl-bottom { padding: 3mm 7mm; display: flex; align-items: center; flex-shrink: 0; }' +
+    '.lbl-comp { font-size: 42pt; font-weight: 900; letter-spacing: 0.02em; text-transform: uppercase; line-height: 1; }' +
+    '.lbl-empty-print-cell { width: 137mm; height: 97mm; background: white; }' +
+    '</style></head><body>' +
+    '<div id="lp">' + printArea.innerHTML + '</div>' +
+    '</body></html>'
+  );
+  win.document.close();
+  setTimeout(function() {
+    win.focus();
+    win.print();
+    setTimeout(function() { win.close(); }, 500);
+  }, 300);
+}
+
+window.addEventListener('afterprint', function() {
+  document.body.classList.remove('printing-labels');
+});
+
+window.addEventListener('load', function() {
+  lbl_renderBtns();
+  lbl_update();
+});
+</script>
+
+<!-- ── CHANGE LOG PANEL ── -->
+<div id="labelsView">
+  <div class="lbl-inner">
+    <div class="lbl-card">
+      <div class="lbl-section-label">Job details</div>
+      <div class="lbl-form-grid">
+        <div class="lbl-field">
+          <label>ID</label>
+          <input type="text" id="lblJobNum" placeholder="437" oninput="lbl_update()">
+        </div>
+        <div class="lbl-field">
+          <label>Model</label>
+          <input type="text" id="lblProdCode" placeholder="RI1" oninput="lbl_update()">
+        </div>
+        <div class="lbl-field">
+          <label>Project</label>
+          <input type="text" id="lblCustName" placeholder="Smith" oninput="lbl_update()">
+        </div>
+        <div class="lbl-field">
+          <label>Colour</label>
+          <input type="text" id="lblColour" placeholder="Anthracite" oninput="lbl_update()">
+        </div>
+      </div>
+    </div>
+
+    <div class="lbl-card">
+      <div class="lbl-section-label">Components — click to select</div>
+      <div class="lbl-comp-row" id="lblCompRow"></div>
+      <div class="lbl-add-row">
+        <input type="text" id="lblCustomInput" placeholder="Add custom component…" onkeydown="if(event.key==='Enter')lbl_addCustom()">
+        <button onclick="lbl_addCustom()">+ Add</button>
+      </div>
+    </div>
+
+    <div class="lbl-card">
+      <div class="lbl-section-label">Preview</div>
+      <div id="lblCountRow" class="lbl-count"></div>
+      <div class="lbl-nav-row">
+        <button class="lbl-nav-btn" id="lblPrevBtn" onclick="lbl_changePage(-1)" disabled>← Prev</button>
+        <span id="lblPageLabel" style="font-size:12px;color:var(--text-muted);">Sheet 1 of 1</span>
+        <button class="lbl-nav-btn" id="lblNextBtn" onclick="lbl_changePage(1)" disabled>Next →</button>
+      </div>
+      <div class="lbl-preview-bg">
+        <div class="lbl-preview-sheet" id="lblPreviewSheet"></div>
+      </div>
+    </div>
+
+    <button class="lbl-print-btn" id="lblPrintBtn" onclick="lbl_doPrint()" disabled>Print labels</button>
+    <div class="lbl-print-tip">A4 landscape &nbsp;·&nbsp; Scaling 100% &nbsp;·&nbsp; Set margins to None in print dialog</div>
+    <button class="lbl-clear-btn" onclick="lbl_clearAll()">Clear all</button>
+  </div>
+</div>
+
+<div id="lblPrintArea"></div>
+
+<div class="changes-overlay" id="changesOverlay" onclick="closeChangesPanel()"></div>
+<div class="changes-panel" id="changesPanel">
+  <div class="changes-panel-hdr">
+    <h2>⚠ Changes Detected</h2>
+    <button onclick="closeChangesPanel()">✕</button>
+  </div>
+  <div class="changes-panel-body" id="changesList"></div>
+  <div class="changes-panel-ftr">
+    <button class="btn-dismiss-all" onclick="dismissAllChanges()">✓ Mark all reviewed — update baseline</button>
+  </div>
+</div>
+
+<!-- VALUE REPORT MODAL -->
+<div class="vr-overlay" id="vrOverlay" onclick="if(event.target===this)closeValueReport()">
+  <div class="vr-modal">
+    <div class="vr-hdr">
+      <h2>📊 Production Value Report — 1 Apr 2026 onwards</h2>
+      <button onclick="closeValueReport()">✕</button>
+    </div>
+    <div class="vr-summary" id="vrSummary"></div>
+    <div class="vr-body" id="vrBody"></div>
+    <div class="vr-ftr" style="gap:8px">
+      <button class="btn-sm" onclick="printValueReport()" style="margin-right:auto">🖨 Print report</button>
+      <button class="btn-vr-close" onclick="closeValueReport()">Close</button>
+    </div>
+  </div>
+</div>
+</body>
+</html>
