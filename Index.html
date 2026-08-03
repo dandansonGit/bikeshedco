@@ -181,6 +181,16 @@ input[type="file"] { display: none; }
 }
 .btn-print:hover    { border-color: var(--green-mid); background: var(--green-light); color: var(--green); }
 .btn-print:disabled { opacity: 0.4; cursor: not-allowed; }
+.print-bar-sep {
+  width: 1px; align-self: stretch; background: var(--border-dark); opacity: 0.5; margin: 0 6px;
+}
+.print-date-input {
+  font-family: var(--sans); font-size: 12px; color: var(--text);
+  border: 1.5px solid var(--border-dark); border-radius: 6px; padding: 3px 7px;
+  background: var(--surface);
+}
+.print-date-input:focus { outline: none; border-color: var(--green-mid); }
+.print-date-to { font-size: 12px; color: var(--text-muted); }
 
 /* ── LYT ALERT ── */
 .lyt-alert {
@@ -821,6 +831,12 @@ body.lbl-view #labelsView { display: block !important; }
   <button class="btn-print" id="btnPrintLids" onclick="doPrint('lids')"        disabled>Lid List</button>
   <button class="btn-print" id="btnPrintAll"      onclick="doPrint('uncompleted')" disabled>All Uncompleted Jobs</button>
   <button class="btn-print" id="btnPrintBasePrep" onclick="doPrint('baseprep')"    disabled>Odd Job List</button>
+  <span class="print-bar-sep"></span>
+  <span class="print-bar-label" style="margin-left:0">Dispatched</span>
+  <input type="date" class="print-date-input" id="dispFrom" onchange="updateDispatchedBtn()" title="From (inclusive)">
+  <span class="print-date-to">→</span>
+  <input type="date" class="print-date-input" id="dispTo"   onchange="updateDispatchedBtn()" title="To (inclusive)">
+  <button class="btn-print" id="btnPrintDispatched" onclick="doPrint('dispatched')" disabled>Dispatched Jobs</button>
   <span style="flex:1"></span>
   <button class="btn-print" id="btnSyncRoute" onclick="syncToRoutePlanner()" disabled style="background:#e8f5e9;border-color:#a5d6a7;color:#1b5e20;">🗺 Sync to Route Planner</button>
   <span id="routeSyncStatus" style="font-size:11px;margin-left:6px;"></span>
@@ -875,6 +891,7 @@ body.lbl-view #labelsView { display: block !important; }
   <div id="print-uncompleted" class="print-section"></div>
   <div id="print-valuereport" class="print-section"></div>
   <div id="print-baseprep"   class="print-section"></div>
+  <div id="print-dispatched" class="print-section"></div>
 </div>
 
 <footer>
@@ -1645,7 +1662,10 @@ function buildDetailHTML(id, job, state) {
   // ── AMENDMENT ──
   if (am) {
     var dispLabel = state.dispatched ? '✓ Left Site / Dispatched' : 'Mark as Dispatched';
-    var dispHint  = state.dispatched ? 'Use "Show dispatched" in toolbar to restore' : 'Hides from main list — use "Show dispatched" to restore';
+    var dispHint  = state.dispatched
+      ? (state.dispatchedDate ? 'Dispatched ' + fmtDateFromStr(state.dispatchedDate) + ' · use "Show dispatched" in toolbar to restore'
+                              : 'Use "Show dispatched" in toolbar to restore')
+      : 'Hides from main list — use "Show dispatched" to restore';
     var wr = state.workshopRequired;
     return '<div class="detail-panel">' +
       '<div class="detail-grid">' +
@@ -1770,7 +1790,10 @@ function buildDetailHTML(id, job, state) {
   if (state.assemblyDate) { lidTxt = '🪟 Lid required by: ' + fmtDateFromStr(state.assemblyDate); lidClass = 'lid-required'; }
   else { lidTxt = '🪟 Lid required by: set an assembly date'; lidClass = 'lid-required unset'; }
   var dispLabel2 = state.dispatched ? '✓ Left Site / Dispatched' : 'Mark as Dispatched';
-  var dispHint2  = state.dispatched ? 'Use "Show dispatched" in toolbar to restore' : 'Hides from main list — use "Show dispatched" to restore';
+  var dispHint2  = state.dispatched
+    ? (state.dispatchedDate ? 'Dispatched ' + fmtDateFromStr(state.dispatchedDate) + ' · use "Show dispatched" in toolbar to restore'
+                            : 'Use "Show dispatched" in toolbar to restore')
+    : 'Hides from main list — use "Show dispatched" to restore';
 
   return '<div class="detail-panel">' +
     '<div class="detail-grid">' +
@@ -1960,7 +1983,8 @@ function toggleTick(id, field) {
   }
   // Auto-dispatch site visits when Visit Completed is ticked
   if (field === 'siteVisitCompleted' && state.siteVisitCompleted) {
-    state.dispatched = true;
+    state.dispatched     = true;
+    state.dispatchedDate = today;
   }
   var _drawingFields = { skpDone:'skpDoneDate', lytDone:'lytDoneDate' };
   if (_drawingFields[field]) {
@@ -2036,7 +2060,15 @@ function toggleLidComplete(id) {
   var lidDisp = document.getElementById('lid-disp-' + id);
   if (lidDisp) lidDisp.innerHTML = state.lidComplete ? '<span style="color:var(--green);font-size:15px;font-weight:700">✓</span>' : '<span style="color:var(--text-light)">—</span>';
 }
-function toggleDispatched(id) { var state = getState(id); state.dispatched = !state.dispatched; saveState(id, state); render(); }
+function toggleDispatched(id) {
+  var state = getState(id);
+  state.dispatched = !state.dispatched;
+  // Stamp the day it actually left the workshop, matching how every other
+  // stage records its date. Cleared again if the tick is undone.
+  state.dispatchedDate = state.dispatched ? todayStr() : '';
+  saveState(id, state);
+  render();
+}
 function markAllDispatched() {
   var today = new Date(); today.setHours(0, 0, 0, 0);
   var overdue = allJobs.filter(function(j) {
@@ -2047,6 +2079,9 @@ function markAllDispatched() {
   overdue.forEach(function(j) {
     var state = getState(String(j.id));
     state.dispatched = true;
+    // These are overdue jobs being cleared retrospectively — they left on
+    // their scheduled date, not today, so stamp that instead of todayStr().
+    state.dispatchedDate = j.installDate ? fmtISO(j.installDate) : todayStr();
     saveState(String(j.id), state);
   });
   render();
@@ -2801,6 +2836,7 @@ function getState(id) {
   if (s.framedDate         === undefined) s.framedDate         = '';
   if (s.sprayedDate        === undefined) s.sprayedDate        = '';
   if (s.dispatched         === undefined) s.dispatched         = false;
+  if (s.dispatchedDate     === undefined) s.dispatchedDate     = '';
   if (s.notes              === undefined) s.notes              = '';
   if (s.siteVisitCompleted === undefined) s.siteVisitCompleted = false;
   if (s.workCompleted      === undefined) s.workCompleted      = false;
@@ -2822,7 +2858,7 @@ function defaultState() {
   return { tgCutDate: '', cut50x50Date: '', framed: false, framedDate: '',
            sprayDate: '', sprayed: false, sprayedDate: '', assemblyDate: '',
            assembled: false, assembledDate: '', readyForDispatch: false, readyForDispatchDate: '',
-           dispatched: false, notes: '', siteVisitCompleted: false, workCompleted: false,
+           dispatched: false, dispatchedDate: '', notes: '', siteVisitCompleted: false, workCompleted: false,
            lidComplete: false, workshopRequired: false, lastSaved: '',
            baseFrame: false, baseFrameDate: '', baseBoard: false, baseBoardDate: '',
            shelves: false, shelvesDate: '', skirting: false, skirtingDate: '',
@@ -2879,6 +2915,26 @@ window.addEventListener('beforeunload', function(e) {
 // ── PRINT ────────────────────────────────────────────────────
 function enablePrintButtons(on) {
   ['btnPrintTG','btnPrint50','btnPrintLids','btnPrintAll','btnPrintBasePrep','btnSyncRoute'].forEach(function(id) { document.getElementById(id).disabled = !on; });
+  // Dispatched report additionally needs a valid date range — default it to
+  // the current month so the button is usable straight after load.
+  if (on) {
+    var f = document.getElementById('dispFrom'), t = document.getElementById('dispTo');
+    if (f && !f.value && t && !t.value) {
+      var now = new Date();
+      f.value = fmtISO(new Date(now.getFullYear(), now.getMonth(), 1));
+      t.value = fmtISO(now);
+    }
+  }
+  updateDispatchedBtn(!on);
+}
+// Enabled only when both dates are set and the range is the right way round.
+function updateDispatchedBtn(forceOff) {
+  var btn = document.getElementById('btnPrintDispatched');
+  if (!btn) return;
+  var from = (document.getElementById('dispFrom') || {}).value || '';
+  var to   = (document.getElementById('dispTo')   || {}).value || '';
+  btn.disabled = !!forceOff || !from || !to || from > to;
+  btn.title = (from && to && from > to) ? 'From date is after the To date' : '';
 }
 function doPrint(type) {
   document.querySelectorAll('.print-section').forEach(function(s) { s.classList.remove('active'); });
@@ -2892,7 +2948,91 @@ function buildPrintHTML(type) {
   if (type === 'lids')        return buildLidsPrint(p);
   if (type === 'uncompleted') return buildUncompletedPrint(p);
   if (type === 'baseprep')    return buildBasePrepPrint(p);
+  if (type === 'dispatched')  return buildDispatchedPrint(p);
   return '';
+}
+// ── DISPATCHED JOBS BY DATE ──────────────────────────────────
+// Filters on dispatchedDate (stamped when the job is ticked off), falling
+// back to the scheduled install date for jobs dispatched before that stamp
+// existed — otherwise every historic job would drop out of the report.
+// Rows using the fallback are marked so the printout stays honest.
+function dispatchDateFor(job, state) {
+  if (state.dispatchedDate) return { date: state.dispatchedDate, actual: true };
+  if (job.installDate)      return { date: fmtISO(job.installDate), actual: false };
+  return { date: '', actual: false };
+}
+function buildDispatchedPrint(printedAt) {
+  var from = (document.getElementById('dispFrom') || {}).value || '';
+  var to   = (document.getElementById('dispTo')   || {}).value || '';
+
+  var rowsData = [], undated = 0, estimated = 0, oldestLoaded = '';
+  allJobs.forEach(function(j) {
+    var s = getState(String(j.id));
+    if (j.installDate) {
+      var iso = fmtISO(j.installDate);
+      if (!oldestLoaded || iso < oldestLoaded) oldestLoaded = iso;
+    }
+    if (!s.dispatched) return;
+    var d = dispatchDateFor(j, s);
+    if (!d.date) { undated++; return; }
+    if (d.date < from || d.date > to) return;
+    if (!d.actual) estimated++;
+    rowsData.push({ job: j, state: s, date: d.date, actual: d.actual });
+  });
+  rowsData.sort(function(a, b) { return a.date.localeCompare(b.date) || (a.job.id - b.job.id); });
+
+  var totalVal = rowsData.reduce(function(t, x) {
+    return t + (parseFloat(String(x.job.orderVal).replace(/[^0-9.]/g, '')) || 0);
+  }, 0);
+  var fmtV = function(v) {
+    return v ? '£' + Number(v).toLocaleString('en-GB', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) : '—';
+  };
+
+  var typeBg = { install: '#e8f0e6', delivery: '#e8f4fd', collection: '#f3e8fd', amendment: '#fff4e0', visit: '#e0f7f4' };
+  var rows = rowsData.map(function(x) {
+    var j = x.job;
+    var projBg = typeBg[typeClass(j.supplyType)] || '#e8f0e6';
+    var dateCell = esc(fmtDateFromStr(x.date)) +
+      (x.actual ? '' : '<br><span style="font-size:9px;color:#888">scheduled</span>');
+    var val = parseFloat(String(j.orderVal).replace(/[^0-9.]/g, '')) || 0;
+    return '<tr>' +
+      '<td>#' + esc(String(j.id)) + '</td>' +
+      '<td style="background:' + projBg + ';font-weight:500">' + esc(j.name) +
+        (j.supplyType ? '<br><span style="font-size:10px;font-weight:400;color:#666;text-transform:uppercase">' + esc(j.supplyType) + '</span>' : '') + '</td>' +
+      '<td>' + esc(j.modelSize || '—') + '</td>' +
+      '<td>' + esc(j.colour || '—') + '</td>' +
+      '<td><strong>' + dateCell + '</strong></td>' +
+      '<td>' + esc(j.installDate ? fmtDate(j.installDate) : '—') + '</td>' +
+      '<td style="text-align:right;font-weight:600">' + fmtV(val) + '</td></tr>';
+  }).join('');
+
+  // Notes that keep the report honest about what it can and can't show.
+  var notes = [];
+  if (estimated) {
+    notes.push(estimated + ' of ' + rowsData.length + ' row(s) marked <em>scheduled</em> — dispatched before ' +
+      'the tracker recorded actual dispatch dates, so the planned install date is shown instead.');
+  }
+  if (undated) {
+    notes.push(undated + ' dispatched job(s) excluded — no dispatch or install date on record.');
+  }
+  if (oldestLoaded && from < oldestLoaded) {
+    notes.push('No jobs are loaded earlier than <strong>' + esc(fmtDateFromStr(oldestLoaded)) + '</strong>. ' +
+      'The tracker only fetches recent jobs from HubSpot, so any dispatches before that date will not appear here.');
+  }
+  var noteHtml = notes.length
+    ? '<div style="margin-top:12px;font-size:11px;color:#555;border-top:1px solid #ccc;padding-top:8px">' +
+      notes.map(function(n) { return '<div style="margin-bottom:3px">⚠ ' + n + '</div>'; }).join('') + '</div>'
+    : '';
+
+  var range = fmtDateFromStr(from) + ' → ' + fmtDateFromStr(to);
+  return '<div class="print-section active">' +
+    '<div class="print-header"><h1>BSC — Dispatched Jobs</h1>' +
+    '<p>' + esc(range) + ' · ' + rowsData.length + ' job' + (rowsData.length === 1 ? '' : 's') +
+    ' · ' + fmtV(totalVal) + ' total · ' + esc(printedAt) + '</p></div>' +
+    '<table class="print-table"><thead><tr><th>ID</th><th>Project</th><th>Model</th><th>Colour</th>' +
+    '<th>Dispatched</th><th>Install Date</th><th style="text-align:right">Value</th></tr></thead>' +
+    '<tbody>' + (rows || '<tr><td colspan="7" style="color:#999;font-style:italic;padding:10px">No jobs dispatched in this date range.</td></tr>') +
+    '</tbody></table>' + noteHtml + '</div>';
 }
 function buildCuttingPrint(title, printedAt, cutField) {
   var today = new Date(); today.setHours(0, 0, 0, 0);
