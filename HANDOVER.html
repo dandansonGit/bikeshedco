@@ -1,0 +1,518 @@
+<!--
+============================================================
+BSC PRODUCTION HUB — STATUS & HANDOVER
+Last updated: 2026-08-07 (v52: dispatch history view, no-hours flag,
+BAY drawing gates, multi-type filter; v51: build time in hours)
+This file lives in the Apps Script project so the full project state
+travels with it — readable from any machine at:
+https://script.google.com/d/1QocduDGGpH__j0UF7sSCO_fwRlVhmSxigOnglEouqvLK1QCwRrNfgoXS/edit
+(It is a doc only — never served or executed.)
+============================================================
+
+WHAT THIS PROJECT IS
+--------------------
+Single web app, one codebase, six views:
+  ?view=dispatch   Dispatch Planner (replaces Trello) — office, per SHED
+  ?view=scheduler  Production Scheduler — planning, per shed
+  ?view=tracker    Production Tracker — shop floor (default view)
+  ?view=installer  Installer — dispatch team's phone view (v29): weekly/
+                   daily schedule in route order with drive times, maps
+                   directions links, client contact (tap-to-call), site
+                   conditions, OneDrive project-folder link (deal field
+                   project_folder — subfolders: 1. Customer supplied info
+                   / 2. Survey / 3. Drawings), and the REQUIRED job
+                   report: arrival time, time taken, QC4 (on-site check),
+                   notes, and a rework flag that EMAILS the office
+                   (CONFIG.INSTALLER.REWORK_EMAIL) the moment it's
+                   submitted. Reports live in the InstallReports tab.
+                   Shows proposed+confirmed crew jobs only. NOTE:
+                   installers need @thebikeshedcompany.com Google
+                   accounts (app is domain-restricted).
+  ?view=reports    Reports (v37) — the board numbers: produced /
+                   dispatched £, rev per sold vs paid hour, utilisation,
+                   per-person, coverage warnings. Print-friendly.
+  ?view=daysheets  Day Sheets (v43) — per-station daily queues, one A4
+                   print per station with pen columns, day-close entry
+                   → WorkLog (the actual-timings feed).
+
+⚠ TRIGGER-VERSION TRAP (found 2026-07-18, the worst gotcha yet): Apps
+Script triggers run the code of the DEPLOYMENT VERSION that created
+them, NOT the latest push. The 15-min cache warmer was installed via a
+v34-era temp deployment, so for days it kept running v34 fetchLiveData —
+every 15 minutes it overwrote the live snapshot WITHOUT productValue /
+estBuildHours / lineItemsOk, which made Reports show "74 of 74 jobs
+have NO product value" and day sheets show "undefined" hours, while
+every force-fetch (?debug=shednames) looked perfect. Both triggers were
+reinstalled from the current version on 2026-07-18. RULE: after EVERY
+redeploy, open ?debug=installwarmer and ?debug=installbackup on the
+pinned deployment (as dan@) to re-bind the triggers to the new version.
+
+CURRENTLY LIVE: v52 (2026-08-07; triggers re-bound to @52 same day —
+dispatch history, no-hours flag, BAY drawing gates, multi-type filter).
+v47 = the fixes from a
+full live USER CHECK of all six views (Dan asked for a human-style
+walkthrough; findings verified live in Dan's Chrome):
+  1. THE TRIGGER-VERSION TRAP above — found because Reports showed
+     £0 / "74 of 74 jobs have NO product value" live while every debug
+     force-fetch looked fine. Triggers reinstalled (bound to v47);
+     Reports verified live after the fix: produced-this-week £5,861,
+     combined £6,788, dispatched £2,422, missing-value list down to the
+     17 genuine review jobs (Bate ×3, Chapman ×2, Gibson ×2, Guppy…).
+  2. Day sheets: bespokes without an hours estimate rendered literal
+     "undefined" (google.script.run DROPS null object properties — the
+     client now treats null/undefined/'' alike and shows the red ?);
+     weekend "today" snaps forward to Monday; date bar (with Save
+     day-close) is sticky; ←/→/Today/Add-task buttons were white-on-
+     white (.hbtn is styled for the dark header — per-view override).
+  3. NEW ?debug=reportscov diagnostic — cached reports payload coverage
+     vs a fresh build vs a live-snapshot sample, in one JSON dump.
+  Numbering: 44/45 consumed by temp debug deploys, 46 was this release
+  mislabelled "v44" (rule is label = Apps Script version) — superseded
+  minutes later by identical @47 with the right label.
+  USER-CHECK OBSERVATIONS still open (Dan's call): (a) the same ~13
+  stale unticked jobs carry over onto EVERY station's day sheet (94
+  station tasks on a Monday) — tick genuinely-done old jobs off in the
+  Tracker, or we add a carry-over collapse/age cut-off; (b) standard
+  models P2/P4/V4/R5 have no build-time estimate (BUILD_DAYS gap → "?"
+  on sheets, excluded from scheduler capacity, no sold-hrs in Reports)
+  — add estimated_build_hours in HubSpot or extend BUILD_DAYS; (c) the
+  installer view once hung forever on its loading spinner with no error
+  (reload fixed it) — a 30s "still loading — tap to retry" watchdog in
+  App.run is the proposed next-round fix; (d) utilisation reads 109%
+  because back-ticked history piles sold-hours into this week — settles
+  once ticking is live-only.
+v43 = DAY SHEETS (?view=daysheets) —
+per-STATION planning + printing, paper-first until tablets arrive:
+  1. Pick a day → each workshop STATION (Cut / Framing / Component &
+     Spray Prep / Spray Booth / Assembly / Lid Station / Base Prep —
+     CONFIG.STATIONS) shows its auto-derived queue from the Scheduler's
+     dates: cut+framing = spray − frameToSpray wd; prep+spray =
+     planned_spray_date; assembly = planned_assembly_date; lid = asm −
+     1wd; base = asm − frameToSpray wd. Overdue carry-overs flagged red.
+     Est hrs = job build hours × the station's stage-weight share.
+  2. Non-sold tasks (Task 1-6 placeholders await Dan's list) can be
+     added per station per day → DayTasks tab.
+  3. 🖨 Print = one A4 page per station with pen columns (Actual / Who /
+     ✓ / Notes). End of day someone keys the paper numbers into the same
+     grid → Save day-close → WorkLog tab (entry_key = day|shed|station).
+     WorkLog is the actual-timings feed Reports will consume next (and
+     the data that refines the bespoke calculator).
+v38-v42 = line-item value derivation refinements (2026-07-17/18):
+multi-shed SKU↔shed-type allocation rounds (exact SKU, prefix, 1:1
+bespoke, add-on lines split across ALL flagged sheds, variation→single
+bespoke, ≤20% remainder spread); valueReviewWhy surfaces WHY a deal
+needs manual shed_value; remaining review deals = Bate/Chapman/Gibson
+(old-format SKUs — tidy them or type shed_value, which always wins).
+v37 = THE MEASUREMENT CORE (Dan's
+decisions, 2026-07-17):
+  1. ?view=reports — the board numbers: value produced (earned per stage
+     tick × DRAFT hour-share weights in Config.STAGE_HOUR_WEIGHTS — Steve
+     + Dan to review), dispatch service £ added to production AT
+     REPORTING (no install-crew target, board decision), value
+     dispatched, rev/SOLD hr vs rev/PAID hr (workshop target £80,
+     combined target £75 TBD), utilisation — day/week/month tables +
+     this-week cards + per-person (28d) + COVERAGE WARNINGS (missing
+     values / no hours estimate / draft weights). Print-friendly.
+  2. PRODUCT VALUE: shed_value wins; else DERIVED from deal LINE ITEMS
+     (net VAT, dispatch lines excluded by CONFIG.DISPATCH_LINE_ITEM —
+     verified live: SKUs like ST-I-Z2-1 / "Install …"); single-shed deals
+     exact, multi-shed flagged for manual shed_value. NEEDS the private
+     app token to have crm.objects.line_items.read (fail-soft warning in
+     Reports if missing). READ-ONLY — the app never writes to HubSpot.
+  3. WORKER NAME-TAP: ticking any stage (or Lid Complete) asks "Who did
+     this?" (workshop team grid, last pick highlighted, Skip allowed) —
+     Steve operates for now. stage_<key>_by columns; archived forever;
+     feeds the per-person report.
+  4. estimated_build_hours / estimated_install_hours shed fields read
+     defensively — light up when Dan adds them (pricing feedback loop).
+  5. NON_SOLD_TASKS placeholders (Task 1-6) await Dan's list; per-STATION
+     day sheets + day-close SHIPPED in v43.
+v36 = PERF PASS 2 — the one that fixed
+it: each view's ENTIRE get*Data payload is cached whole (cachedPayload_
+in HubSpot.gs) and pre-built by the 15-min warmer; user requests serve in
+~0.1-0.2s (was 2.8-7.2s rebuilding from sheet reads every time). ANY
+state-sheet write busts all four payloads (bustViewPayloads_ called in
+storeUpsert/storeBatchSetField), so edits appear immediately; ⟳ forces a
+rebuild. Measured: installer call 114ms, tracker 172ms; full page load
+incl. Apps Script sandbox boot ≈ 3-5s consistently.
+v34 = PERFORMANCE PASS 1 (measured via
+the new ?debug=timing endpoint): (1) 15-MIN CACHE WARMER trigger
+(keepLiveCacheWarm in Backup.gs, installed via ?debug=installwarmer) —
+refreshes the HubSpot snapshot + Timetastic leave on Google's servers so
+no user ever pays the cold-fetch cost (~15-30s) that made the installer
+view feel slow; every view now loads against a warm cache (~2-3s server
+time). (2) Spreadsheet handle + per-tab schema checks memoised per
+execution (each tab read was independently re-opening the spreadsheet,
+~0.4s each). (3) Geo-tab postcode cache memoised per execution; installer
+and dispatch geocode jobs + workshop in ONE pass. Timings before/after in
+git log. NOTE: the warmer means HubSpot data is never more than ~15 min
+stale — ⟳ Refresh still forces an immediate fetch. v31 = installer view round 2 (Dan's
+feedback): shows EVERYTHING going out — cards colour-coded by type
+(green install / blue team delivery / teal Andy / amber courier / grey
+collection / dashed violet survey+amendment visits, now on the schedule
+too); "Team jobs only" toggle (DEFAULT ON, per-device) hides courier/
+Andy/collection noise; route covers Install+Del Team stops only, others
+listed under "Also going out today"; ▲▼ stop reordering with live leg
+recompute (client speed model) saved to Dispatch.route_order for
+everyone; same-customer sheds sit adjacent in 1/2, 2/2 order; day strip
+is Mon–Fri (weekend cells only if booked) with bank-holiday shading;
+email link removed (installers call/text). Dispatch board flags
+"📁 no folder" on cards missing the deal's project_folder link.
+Cache-key schema suffix added (bump on fetch-shape changes — kills the
+stale-snapshot-after-deploy gotcha). Smoke 90.
+  Deployment ID: AKfycbw5TsjlYXBLf_TBDVHRyeu4tbrSGvaOu9iU_c4d29ggpXzCbfPmSGmy6S1RlR1f6QMT
+  Base URL: https://script.google.com/macros/s/AKfycbw5TsjlYXBLf_TBDVHRyeu4tbrSGvaOu9iU_c4d29ggpXzCbfPmSGmy6S1RlR1f6QMT/exec
+  Access: domain only, executes as deployer (dan@thebikeshedcompany.com).
+  Release label = Apps Script version number since v20 (temp debug
+  deployments consumed 11/14/18/19, so earlier labels drifted: the
+  release once called "v15" is Apps Script Version 17).
+
+VERSION HISTORY (one line each; details in git log of the local repo)
+--------------------------------------------------------------------
+v1-2  2026-07-13  Initial rebuild live; cross-view nav fix (iframe
+                  sandbox needs absolute /exec URLs + target=_top).
+v3    2026-07-14  Sheet date round-trip fix; read-time dedupe of legacy
+                  duplicate Jobs rows (storeReadLatest).
+v4    2026-07-14  Batch-2 UX: ✎ edit, fault modal, ? help, freshness.
+v5    2026-07-14  Amendments visit markers (tickets pipeline 749379237);
+                  shed-level dispatch_status (HS Proposed/Confirmed
+                  overrides + locks); 14-day penalty flag; install-day
+                  planner (OSRM, van slots, weekly rhythm); spray model
+                  2-4/day.
+v6    2026-07-14  Scheduler day-level: Mon-Fri spray lanes, per-day
+                  meters, Plan-sprays colour batching, assembly +2wd,
+                  day panel.
+v7    2026-07-15  Scheduler UX round; spray-date guard rails; man-hours
+                  capacity; focus week; mixed-colour flag; on-hold
+                  groundwork. (Its "Hutton fix" was backwards — see v9.)
+v8    2026-07-15  Batch-3 structural refactor: per-view *Styles.html,
+                  event delegation (no inline handler strings), smoke 56.
+v9    2026-07-16  REAL Hutton fix — NAMING TRAP #1 (see below): shed
+                  dispatch date = install_date; deal fallback removed;
+                  quirky dispatch_status values mapped (true/false).
+v10   2026-07-16  Dispatch planner PER SHED; job name = shed hs_name
+                  everywhere; Dispatch tab re-keyed shed_id.
+v11   2026-07-16  hs_name trailing-dash trim; ⏸ ON HOLD badge + Tracker
+                  section (value "On hold" verified live); ?debug=
+                  shednames endpoint; 30-min cache lesson (see GOTCHAS).
+v12   2026-07-16  Penalty window = red 🔒 on card (was a loud chip).
+v13   2026-07-16  CRITICAL fix: drafts vanished on Refresh (storeReadAll
+                  skipped rows with blank col A = legacy deal_id); 📋 For
+                  HubSpot export (copyable TSV for Sasha — the app never
+                  writes to HubSpot).
+v14   2026-07-16  Busy week columns widen; click week header → expanded
+                  day view; per-day notes (DispatchDayNotes tab);
+                  dispatch £ per day/week.
+v15=@17 2026-07-16 Crew man-hours per placed day (speed-model route ×
+                  crew 2) + £/hr; UK bank holidays shaded everywhere,
+                  never suggested (gov.uk feed, 24h cache + fallback).
+v20   2026-07-16  Dispatch £ from SHED install_value (NAMING TRAP #2) ÷
+                  order units; deal dispatch_value is empty on all deals.
+v21   2026-07-16  Crew week: 11h day target, Monday 8h warning, 82 paid
+                  man-hrs/wk (2 × 40 + 1 OT each).
+v22   2026-07-16  Dispatch auto-refresh (15 min); 3rd width tier; ALL
+                  add-on icons on scheduler cards (+ additional_storage).
+v23   2026-07-16  JOIN SUGGESTIONS (drafts onto agreed days, 🔒 anchors,
+                  Add-to-day places only new sheds); Plan sprays orders
+                  by dispatch urgency + first-fit days (Guppy bug);
+                  amber/red tight-spray chip; finish tints; dispatch
+                  type tints.
+v24   2026-07-16  Tints strengthened; HTML entities decoded (&amp; bug);
+                  add-on values in scheduler ✎ modal; green_roof dual
+                  field read.
+v25   2026-07-16  ARCHIVE (snapshot on Dispatched, searchable Tracker
+                  section, Restore un-archives + un-ticks); QC issue
+                  category checkboxes → stage_qcN_fault_cats; SKP/LYT
+                  drawing gates (chase banner, ✎ Gates row, confirm
+                  before starting bespoke builds); 🌿 sedum banner;
+                  fixed TrackerApi dispatch-state still keyed by deal_id.
+v26   2026-07-16  LID STATION: single "Lid Complete" checkpoint per job
+                  (parallel to stages — assembly may run while the lid is
+                  built, so Assembled/Dispatched WARN, never block);
+                  "⚠ Lid outstanding" chip.
+v27   2026-07-16  Lid button colour refresh fix (refreshCard now updates
+                  it); docs restructure (this file, CLAUDE.md,
+                  IMPROVEMENTS.md).
+v29   2026-07-17  INSTALLER VIEW (?view=installer): schedule, routes,
+                  contacts, site info, project-folder links, job report
+                  w/ QC4 + rework email. Backups live (nightly sheet
+                  snapshot + repo bundles). Temp deploy ate 28.
+v31   2026-07-17  Installer round 2: type colours, visits on schedule,
+                  team-only toggle, ▲▼ stop reorder, 1/2-2/2 adjacency;
+                  dispatch "📁 no folder" flag; cache-key schema suffix.
+v34   2026-07-17  Perf pass 1: 15-min cache warmer trigger, memoised
+                  sheet/geo access, ?debug=timing. Temp deploys ate 32/33.
+v36   2026-07-17  Perf pass 2 (the real fix): whole get*Data payloads
+                  cached + pre-built, busted on any sheet write
+                  (installer 2.8-7.2s → ~0.1s). Temp deploy ate 35.
+v37   2026-07-17  MEASUREMENT CORE: ?view=reports (produced/dispatched £,
+                  rev/sold-hr vs rev/paid-hr, utilisation, per-person,
+                  coverage warnings); product value from shed_value or
+                  deal line items; worker name-tap on every stage tick.
+v39   2026-07-17  Multi-shed line-item ALLOCATION (SKU↔type rounds);
+                  valueSource per shed; coverage ~25%→~90%+. Ate 38.
+v42   2026-07-17  Allocation refinements: add-on lines split across all
+                  flagged sheds, ≤20% remainder spread, valueReviewWhy.
+                  Ate 40/41.
+v43   2026-07-18  DAY SHEETS (?view=daysheets): per-station queues from
+                  scheduler dates, non-sold tasks → DayTasks, A4 print
+                  per station, day-close actuals → WorkLog. Smoke 103.
+v47   2026-07-18  TRIGGER-VERSION TRAP fix (see banner above) + day-sheet
+                  "undefined" est-hrs guard, weekend snap, sticky save
+                  bar; ?debug=reportscov. Ate 44/45; 46 mislabelled.
+v48   2026-08-06  Stuck-drag fix (Dispatch + Scheduler): dropping a card
+                  re-renders the board, Chrome loses dragend, dragId
+                  stuck → card clicks silently ignored + auto-refresh
+                  dead. onDrop now clears drag state before render();
+                  mousedown safety net resets any stale dragId.
+v49   2026-08-06  TEST-NOTES widget: 🗒 Notes button in every view's
+                  header (self-injected by Shared.html) — Dan records
+                  issues while testing, notes land in the AppFeedback
+                  tab (view + timestamp), ✓ marks dealt-with, "Copy for
+                  Claude" formats open notes for a fix session.
+                  FeedbackApi.gs writes WITHOUT busting view caches.
+v52   2026-08-07  Four Dan requests: (1) DISPATCH HISTORY — past weeks
+                  show archived jobs as grey read-only "✓ dispatched"
+                  cards on their planned dates (getDispatchHistory,
+                  fetched on demand when ← Prev reaches the past; past
+                  £ totals include shipped; search filters them, status
+                  chips hide them). (2) "⚠ NO HOURS" red badge on any
+                  scheduler card with no build time (bespoke or missing
+                  BUILD_DAYS model) + a No-hours filter chip. (3) SKP/
+                  LYT drawing gates now cover BAY-bike too, via a
+                  needsDrawings flag (bespoke OR /bay/i) driving the
+                  modal gates, 📐 card chip and the Drawings banner.
+                  (4) Scheduler type filter is a multi-select checkbox
+                  dropdown. Smoke 105.
+v51   2026-08-07  BUILD TIME IN HOURS (Dan): scheduler override entered/
+                  shown in hours (stored in days — schema unchanged, ÷6.5
+                  at the modal boundary); card badges now hours; modal
+                  shows standard + HubSpot estimate reference. ONE
+                  precedence rule app-wide (Scheduler capacity previously
+                  IGNORED estimated_build_hours; Reports/DaySheets had
+                  est > override): app override > estimated_build_hours >
+                  standard BUILD_DAYS. Smoke 105.
+v50   2026-08-07  Dispatch filter-strip clarity (Dan's user-check):
+                  strip split into labelled Orders | Visits groups,
+                  visit chips violet to match the visit cards; "N of M
+                  visits" counter; week headers count only visits
+                  actually shown; order cards dim to 40% while a visit
+                  filter is on. Semantics unchanged (visit chips =
+                  "show only that visit type", orders untouched).
+
+THE THREE-STAGE MODEL (current)
+-------------------------------
+1. DISPATCH (per SHED): live sheds = order_complete "no" + parent deal
+   at Sale (1094492205). Card name = shed hs_name. Target date = shed
+   install_date. Drag onto week/day slots → draft → proposed → confirmed
+   (colour/finish gate before proposing; confirmed locks; HubSpot
+   Proposed/Confirmed set by sales OVERRIDES and locks the app state;
+   Planned never does). "✨ Suggest install days" = install-day planner
+   (van slots, OSRM drive times, ≤1h legs, 11h day / 8h Mon, Tue-Thu
+   London / Mon-Thu local, bank holidays skipped) with JOIN suggestions
+   onto already-agreed days first. £ per day/week = shed install_value ÷
+   order units; ≈man-hrs + £/hr from speed-model route estimates.
+   Day notes in the expanded week view. 📋 For HubSpot = manual handover
+   list for Sasha (the app NEVER writes to HubSpot).
+2. SCHEDULER (per shed): weekly board + Mon-Fri spray lanes; planning
+   date = HS proposed/confirmed date > app proposed date > shed
+   install_date (resolvePlanningInfo_ — single source for all views).
+   Plan sprays batches colours, most-urgent dispatch first. Capacity =
+   man-hours net of Timetastic leave. Chase banners: 📐 SKP/LYT (Dan
+   ticks; gates bespoke build start) and 🌿 sedum. Finish-tinted cards.
+3. TRACKER (per shed): 10 stages (Cut → Dispatched) + parallel LID
+   STATION checkpoint + odd jobs (B1 ply/C lid frame/D base frame). QC
+   stages capture fault text + structured issue categories. Dispatched
+   → Archive snapshot (restorable). Bespoke jobs warn before starting
+   without drawings; Assembled/Dispatched warn without a lid.
+
+KEY FIELD MAPPINGS & TRAPS (all verified live)
+----------------------------------------------
+- NAMING TRAP #1: shed dispatch DATE = `install_date`. There is NO
+  dispatch_date on the Shed; the deal's dispatch_date is stale. (v9)
+- NAMING TRAP #2: shed dispatch VALUE (£) = `install_value` — the
+  ORDER's dispatch £ stamped on every shed of the order → divide by
+  unit count. Deal dispatch_value is empty in practice. (v20)
+- dispatch_status stored values are QUIRKY: Planned="true",
+  Proposed="false", Confirmed="Confirmed", On hold="On hold" —
+  normalizeHsStatus_ maps them all. On-hold comes ONLY from this field;
+  a blank dispatch date just means sales haven't entered one.
+- hs_name = "job# - Name - shed type - #/#" (empty #/# leaves a
+  trailing " - ", trimmed by cleanShedName_). THE display name app-wide.
+- The HubSpot MCP connector CANNOT read custom object 0-162 — verify
+  shed fields live via ?debug=shednames (see GOTCHAS for the flow).
+- Rich-text fields (additional_product_requirements__shed_) arrive
+  HTML-encoded — stripHtml strips tags THEN decodes entities.
+
+FILES
+-----
+  Config.gs        every constant + sheet schemas (single source of truth)
+  Main.gs          doGet routing (?view=), include(); debug endpoints:
+                   ?debug=shednames / dispatchstate / reportscov /
+                   timing / installwarmer / installbackup / runbackup
+  HubSpot.gs       the one HubSpot client; fetchLiveData() → {sheds,
+                   deals, amendments}; resolvePlanningInfo_; 30-min
+                   chunked cache
+  Store.gs         state-sheet repo: header-keyed, LockService,
+                   null=clear, storeReadLatest dedupe, schema migration
+  Geo.gs           postcodes.io geocoding + OSRM drive-time matrix
+                   (speed-model fallback) + gov.uk bank holidays
+  Planner.gs       install-day engine: suggestInstallDays (joins +
+                   fresh days), estimatePlacedDayHours_
+  DispatchApi.gs / SchedulerApi.gs / TrackerApi.gs /
+  InstallerApi.gs / ReportsApi.gs / DaySheetsApi.gs   view backends
+                   (TrackerApi also owns the Archive)
+  Backup.gs        nightlyBackup (verified sheet snapshots) +
+                   keepLiveCacheWarm (15-min payload pre-build) +
+                   trigger installers
+  Shared.html      shared CSS + App.* JS utils
+  Dispatch/Scheduler/Tracker/Installer/Reports/Daysheets.html
+                   + *Styles.html   the views
+  (.gs named *Api because .gs/.html can't share a basename)
+
+DATA
+----
+State spreadsheet "BSC_ProdTracker_State" (ID pinned in Script Property
+STATE_SS_ID; ALSO written by the two legacy apps until frozen):
+  Jobs              per shed: legacy 39 cols + appended: stage_qc3_faults,
+                    stage_qcN_fault_cats ×3, skp_done(_date),
+                    lyt_done(_date), sedum_ordered, lid_complete(_date)
+  Dispatch          per shed (keyed shed_id; legacy deal_id/deal_name
+                    cols retained + filled for context)
+  Geo               postcode → lat/lng cache
+  DispatchDayNotes  day → free-text note
+  InstallReports    installer job reports (arrival, time taken, QC4,
+                    notes, rework flag)
+  DayTasks          non-sold tasks added to a station's day sheet
+  WorkLog           day-close actuals (entry_key = day|shed|station):
+                    est vs actual hrs, who, done, notes — the
+                    actual-timings feed for Reports + bespoke calculator
+  Archive           snapshot per dispatched shed (all stage dates,
+                    faults + categories, value; restored=TRUE = hidden)
+Script Properties: HUBSPOT_API_KEY, TIMETASTIC_API_KEY, STATE_SS_ID.
+HubSpot: Sheds 0-162 (SHED_PROPS in Config), parent Deals, Amendments
+ticket pipeline 749379237. Sale stage 1094492205. NO WRITES to HubSpot.
+
+NEXT UP (agreed with Dan 2026-07-16; specs in IMPROVEMENTS.md)
+--------------------------------------------------------------
+1. MOSTLY DONE v29/v31 (installer view + job report/QC4/rework email).
+   Still open: delivery-note form, photo capture, installer Google
+   accounts (Daniel Peters, Todd Young), rework email → info@ when Dan
+   says go.
+2. Label printing (spec captured: A4 landscape 4/sheet; label = #job +
+   model / SURNAME / COLOUR / COMPONENT; presets RHS/LHS/Door n/n/Back
+   n/n/Base/Lid/Return n/n/Bifold n/4 + custom).
+3. Cutting lists (T&G, 50×50, Lid) — data source TBD: REVCAP xlsm vs
+   in-app model-dimension table.
+4. LARGELY SUPERSEDED by ?view=reports (v37+): value coverage now
+   ~77%+ via line items; remaining blockers = Steve's weight review +
+   the 17 review jobs + BUILD_DAYS gaps (P2/P4/V4/R5). A shop-floor
+   scoreboard INSIDE the Tracker is still an option later.
+4b. App.run loading watchdog (user-check finding: installer view once
+   span forever with no error) — 30s "still loading — tap to retry".
+4c. Day-sheet carry-over noise: collapse/age cut-off for long-overdue
+   station rows, if ticking off stale jobs doesn't clear it.
+5. DONE v43 (per-station day sheets); NEXT: per-person assignment once
+   tablets arrive, and Reports reading WorkLog actuals (est vs actual).
+6. Drawings retrieval (quote + workshop DWG PDFs) — blocked on: where
+   PDFs live + naming convention.
+7. Delivery-box checkpoint + add-ons packing popup at Assembled.
+8. Freeze the two LEGACY apps once the team fully adopts the Hub
+   (dual-writer risk on Jobs tab):
+     BSC Production Scheduler 1hyGoLLeKDJDuJ2wh9C8QHLgQdKhuwMJtHbgmAl9e5QpHDtmXz4p6Kvui
+     BSC Production Tracker (HubSpot) 1NcvmmXrNQWj3Wm1G7Ns0PT00uFz--XasF4qbCVqNxuil2mvAF_taRMH_
+9. Long list: timing analytics from archive data → refine build times +
+   bespoke calculator (see "BSC Bespoke Calculator" folder); retire
+   odd-jobs C track once Lid station is adopted; HubSpot write-back.
+
+BACKUPS (set up + verified 2026-07-17)
+--------------------------------------
+Three layers; any single failure is recoverable from ≥2 places.
+1. STATE SHEET (the critical data): Backup.gs `nightlyBackup` runs on
+   GOOGLE'S SERVERS (time-driven trigger, ~02:00 Europe/London — laptop
+   irrelevant). Copies BSC_ProdTracker_State into Drive folder
+   "BSC Hub Backups" as "... backup YYYY-MM-DD", VERIFIES every tab's
+   dimensions against the source (a failed verify trashes the bad copy),
+   prunes to last 30 dailies + 1st-of-month for ~2 years, and emails
+   dan@ ONLY on failure — silence = healthy. Config: CONFIG.BACKUP.
+   NOTE (corrected 2026-07-18): triggers run the code of the DEPLOYMENT
+   VERSION that created them — see the TRIGGER-VERSION TRAP banner at
+   the top. Reinstall both triggers after every redeploy.
+   Admin (open on the PINNED deployment as dan@ — do NOT install
+   triggers from a temp deployment, that is what caused the trap):
+     ?debug=installbackup   install/reset the nightly trigger
+     ?debug=installwarmer   install/reset the 15-min cache warmer
+     ?debug=runbackup       snapshot + verify right now
+2. APP CODE: (a) every numbered Apps Script version (v1, v2, …) is
+   immutable — the live app can always be rolled back via Deploy →
+   Manage deployments → edit → pick an older version; (b) git repo on
+   Dan's PC; (c) daily 09:30 Windows scheduled task "BSC repo backup"
+   bundles the whole repo (git bundle --all) into the OneDrive-synced
+   folder "BSC Production System\Backups" (newest 14 kept; runs when
+   the laptop next wakes if missed); (d) GitHub private remote —
+   PENDING: Dan to create the repo, then wire `git remote add origin`
+   and push on every deploy.
+3. SCRIPT PROPERTIES (not in any code backup — document, never export
+   values): HUBSPOT_API_KEY (regenerate: HubSpot → Settings →
+   Integrations → Private Apps), TIMETASTIC_API_KEY (Timetastic → My
+   Account → API), STATE_SS_ID (just the sheet ID — re-pin by opening
+   the app once; it self-heals by name search).
+
+RESTORE RUNBOOK
+---------------
+Sheet data damaged/lost:
+  a. Open "BSC Hub Backups" in Drive, open last night's snapshot, sanity
+     -check it (Jobs/Dispatch/Archive tabs look right).
+  b. Small damage: copy the affected tab(s)/rows back into the live
+     sheet manually.
+  c. Total loss: make a copy of the snapshot, name it
+     BSC_ProdTracker_State, and set Script Property STATE_SS_ID to the
+     new file's ID (Extensions → Apps Script → Project Settings →
+     Script Properties). At most one day of ticks is lost.
+Code damaged / bad deploy:
+  a. Roll the LIVE APP back instantly: Deploy → Manage deployments →
+     edit → select the previous version → Deploy (or `clasp redeploy
+     <id> -V <n>`).
+  b. Repo lost: `git clone` from GitHub (once wired), or restore from
+     the newest OneDrive bundle: `git clone bsc-production-apps-YYYYMMDD.bundle repo`.
+Quarterly drill (10 min): open latest snapshot — does it open, do the
+tabs look sane? Check the OneDrive Backups folder has recent bundles.
+
+WORKING ON THIS FROM ANY MACHINE
+--------------------------------
+Canonical local repo (Dan's PC): C:\Users\dan\bsc-production-apps
+(git history is the detailed changelog; CLAUDE.md = agent guide; dev/ =
+mock harness). SMOKE TEST before any redeploy: build-mock.ps1 +
+serve.ps1, open http://localhost:8787/smoke.html → title "SMOKE: PASS"
+(78 checks as of v27).
+Fresh machine: install Node.js → npm i -g @google/clasp → clasp login
+(dan@; Workspace re-auth expires periodically — expect invalid_rapt) →
+clasp clone 1QocduDGGpH__j0UF7sSCO_fwRlVhmSxigOnglEouqvLK1QCwRrNfgoXS →
+edit → clasp push -f → clasp redeploy <deployment id above> -d "vN - …".
+NEVER bare `clasp deploy` for the live app — it mints a NEW URL.
+
+GOTCHAS LEARNED
+---------------
+- 30-MIN CACHE: fetchLiveData caches the processed snapshot ACROSS
+  deployments. After any redeploy, the app can serve a snapshot built by
+  the OLD code; browser refresh does NOT clear it — use the app's ⟳
+  Refresh, or wait. This has caused two "the fix didn't work" scares.
+- Debugging server field mappings: add/extend a ?debug= branch in
+  Main.gs, `clasp deploy -d "TEMP"` (new URL), open it logged in as
+  dan@, then `clasp delete-deployment <id>`. The @HEAD deployment 404s
+  on /exec, so a temp versioned deployment is required.
+- Iframe sandbox: relative links don't work in served pages — use
+  APP_BASE_URL + target=_top.
+- .gs and .html cannot share a basename; clasp create clobbers
+  appsscript.json.
+- Store.gs contract: null clears, absent skips; never touch the sheet
+  outside Store.gs; only APPEND columns (invariant #3).
+- storeReadAll skips only fully-empty rows — testing column A broke
+  per-shed Dispatch reads once (v13). Don't reintroduce.
+- Apps Script evaluates template scriptlets even inside HTML comments —
+  an include must never contain its own include syntax literally.
+- Sheets auto-parses yyyy-mm-dd into Dates — sheetValueToString_
+  normalises on read.
+============================================================
+-->
+<!-- Content is entirely in the comment above. -->

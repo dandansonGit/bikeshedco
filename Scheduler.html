@@ -1,0 +1,1184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>BSC — Production Scheduler</title>
+  <script>window.APP_BASE_URL = <?!= JSON.stringify(ScriptApp.getService().getUrl()) ?>;</script>
+  <?!= include('Shared'); ?>
+  <?!= include('SchedulerStyles'); ?>
+</head>
+<body>
+
+<div class="header">
+  <h1>Production Scheduler</h1>
+  <div class="header-sep"></div>
+  <div class="header-meta" id="hdrMeta">Loading…</div>
+  <div id="viewNav"></div>
+  <button class="hbtn" onclick="shiftWeeks(-1)">&#8592; Prev</button>
+  <button class="hbtn" onclick="jumpToToday()">Today</button>
+  <button class="hbtn" onclick="shiftWeeks(1)">Next &#8594;</button>
+  <div class="header-sep"></div>
+  <button class="hbtn" id="btnFocus" onclick="toggleFocusMode()" title="Show one week at full width, or all four side by side">&#9974; Focus week</button>
+  <button class="hbtn" onclick="openHelp()" title="What do the colours and icons mean?">?</button>
+  <button class="hbtn" id="btnRefresh" onclick="doRefresh()">⟳ Refresh</button>
+</div>
+
+<div class="search-strip">
+  <input type="text" class="search-input" id="searchInput" placeholder="Search jobs, type, colour…" oninput="onSearchInput(this.value)">
+  <select class="filter-sel" id="filterColour" onchange="onFilterColour(this.value)"><option value="">All colours</option></select>
+  <div class="filter-multi" id="filterTypeWrap">
+    <button class="filter-sel" id="filterTypeBtn" onclick="toggleTypeMenu()">All types ▾</button>
+    <div class="filter-menu" id="filterTypeMenu"></div>
+  </div>
+  <button class="chip" id="chipUnscheduled" onclick="toggleChip('unscheduled')">Unscheduled</button>
+  <button class="chip" id="chipOverdue" onclick="toggleChip('overdue')">Overdue</button>
+  <button class="chip" id="chipConfirmed" onclick="toggleChip('confirmedOnly')">Confirmed dispatch</button>
+  <button class="chip" id="chipHasExtras" onclick="toggleChip('hasExtras')">Has extras</button>
+  <button class="chip" id="chipNoHours" onclick="toggleChip('noHours')" title="Jobs with no build time at all — they count 0 in capacity until hours are set">⚠ No hours</button>
+  <button class="clear-btn" id="clearFilters" onclick="clearSearch()" style="display:none">× Clear</button>
+  <span class="search-count" id="searchCount" style="display:none"></span>
+</div>
+
+<div class="banner" id="banner"></div>
+<div id="chaseArea"></div>
+
+<div class="workspace">
+  <div class="sidebar">
+    <div class="sidebar-hdr">To Schedule <span id="unscheduledCount">0</span></div>
+    <div class="sidebar-body" id="sidebarBody" data-drop="unscheduled">
+      <div class="loading-wrap" style="height:120px"><div class="spinner"></div></div>
+    </div>
+  </div>
+  <div class="board-wrap">
+    <div class="board" id="board">
+      <div class="loading-wrap"><div class="spinner"></div><div>Loading scheduler data…</div></div>
+    </div>
+  </div>
+</div>
+
+<div class="day-panel" id="dayPanel">
+  <div class="day-panel-hdr">
+    <span class="day-panel-title" id="dayPanelTitle">Week view</span>
+    <button class="day-panel-close" onclick="closeDayPanel()">&#215;</button>
+  </div>
+  <div class="day-panel-body" id="dayPanelBody"></div>
+</div>
+
+<div class="modal-bg" id="helpModal">
+  <div class="modal-box" style="max-width:460px">
+    <div class="modal-title">How this board works</div>
+    <div class="help-list">
+      <div><strong>Cards are sheds to build.</strong> Drag them from "To Schedule" onto a week. The coloured stripe is the paint finish.</div>
+      <div><strong>✎ Edit</strong> (or double-click a card): set a build-time override in HOURS, planning notes, or lock the job to its week (shown as 🔒). Build-time precedence everywhere: your override &gt; HubSpot estimated_build_hours &gt; standard time.</div>
+      <div><strong>Date badge</strong> = the date production is working towards (confirmed/proposed dispatch date, else the sales target): green = comfortable, amber = within 2 weeks, red = overdue.</div>
+      <div><strong>DRAFT / PROPOSED / CONFIRMED</strong> pills show the dispatch-date status from the Dispatch Planner.</div>
+      <div><strong>Dots</strong> = the 10 production stages completed (from the Tracker).</div>
+      <div><strong>BESPOKE</strong> = no standard build time; it counts as 0 in capacity until you set hours via ✎ (or estimated_build_hours on the shed in HubSpot).</div>
+      <div><strong>⏸ ON HOLD</strong> = sales set the shed's Dispatch status to "On hold" in HubSpot. It's skipped by Plan sprays; the badge clears when sales lift the hold.</div>
+      <div><strong>Add-on icons</strong> (hover a card's icons for names): 🔒 Security Pack · 🚪 Bi-folds · 🌿 Green Roof · 🔗 Joining Panel · 🪝 Storage Hooks · 🗄️ End Shelves · ♻️ Recycling Shelf · 🚲 Steadyracks · 📦 Additional Storage · 📝 Additional requirements.</div>
+      <div><strong>Capacity</strong> = man-hours booked (build-days × 6.5h) vs the team's available hours that week, already deducting booked leave (red name pills). <strong>Finish batching</strong> (click to expand) = which colours are booked this week.</div>
+      <div style="margin-bottom:8px"><strong>Spray-day lanes:</strong> each week splits into Mon–Fri. Drag a card onto a day to set its <strong>spray date</strong> — assembly is auto-set 2 working days later, and the 🎨 chip's tooltip shows when framing must start. The per-day meter targets 2.5–3 sprayed (max 4). Jobs in the top "no spray day yet" zone are in the week but unplanned.</div>
+      <div style="margin-bottom:8px"><strong>🎨 Plan sprays</strong> auto-fills the week: same colours land on the same day (fewer booth changeovers), 3 per day, spilling to 4 only when full.</div>
+      <div style="margin-bottom:8px"><strong>⚠ mixed</strong> on a day = 3+ jobs sprayed that day in more than one colour — the count looks fine but it costs extra booth changeovers. Worth reshuffling if you can.</div>
+      <div style="margin-bottom:8px"><strong>Click a week header</strong> for the day-by-day view (framing / spraying / assembling per day).</div>
+      <div><strong>⛶ Focus week</strong> shows just one week at full width instead of four narrow columns — the "To Schedule" list stays put on the left. Click again for the 4-week overview.</div>
+    </div>
+    <div class="modal-btns"><button class="btn-pri" onclick="closeHelp()">Got it</button></div>
+  </div>
+</div>
+
+<div class="modal-bg" id="editModal">
+  <div class="modal-box">
+    <div class="modal-title" id="editModalTitle">Edit job</div>
+    <div class="modal-sub" id="editJobInfo" style="line-height:1.7;margin-bottom:10px"></div>
+    <div class="form-row">
+      <label>Build time override (hours)</label>
+      <input type="number" id="editBuildHours" step="0.5" min="0" placeholder="Leave blank to use the standard / HubSpot estimate">
+      <div id="editBuildRef" style="font-size:12px;color:#777;margin-top:4px"></div>
+    </div>
+    <div class="form-row" style="display:flex;gap:10px">
+      <div style="flex:1"><label>Spray date</label><input type="date" id="editSpray"></div>
+      <div style="flex:1"><label>Assembly date</label><input type="date" id="editAsm"></div>
+    </div>
+    <div style="font-size:11px;color:#888;margin:-6px 0 10px" id="editFrameHint"></div>
+    <div class="form-row">
+      <label>Planning note</label>
+      <textarea id="editNotes" placeholder="Notes for this job…"></textarea>
+    </div>
+    <div class="form-row" style="display:flex;align-items:center;gap:8px">
+      <input type="checkbox" id="editLocked" style="width:16px;height:16px">
+      <label style="margin:0;font-weight:600">Lock to this week (prevent drag)</label>
+    </div>
+    <div class="form-row" id="editGatesRow" style="display:none">
+      <label>Gates</label>
+      <div style="display:flex;gap:16px;flex-wrap:wrap;font-size:14px">
+        <label style="margin:0;font-weight:400" id="editSkpWrap"><input type="checkbox" id="editSkp"> SKP done</label>
+        <label style="margin:0;font-weight:400" id="editLytWrap"><input type="checkbox" id="editLyt"> LYT done</label>
+        <label style="margin:0;font-weight:400" id="editSedumWrap"><input type="checkbox" id="editSedum"> Sedum ordered</label>
+      </div>
+    </div>
+    <div class="modal-btns">
+      <button class="btn-sec" onclick="closeEditModal()">Cancel</button>
+      <button class="btn-pri" onclick="saveEditModal()">Save</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  // ── App state ──────────────────────────────────────────────
+  var allJobs = [];
+  var leaveData = [];
+  var cacheTs = null;
+  var CFG = { teamCount: 9, daysPerWeek: 5, spray: { maxPerDay: 4, targetPerDayMin: 2.5, targetPerDayMax: 3, daysPerWeek: 5 }, stages: [] };
+  var weekOffset = 0;
+  var focusMode = false;   // true = one week at full width, false = 4-week overview
+  var editingId = null;
+  var dragId = null;
+  var openDayPanelWeek = null;
+  var sprayPanelOpen = {};   // weekStr -> bool, collapsed by default
+
+  var searchQuery = '';
+  // shedTypes is a multi-select (Dan 2026-08-07): empty array = all types
+  var activeFilters = { colour: '', shedTypes: [], unscheduled: false, overdue: false, confirmedOnly: false, hasExtras: false, noHours: false };
+
+  // Every "Shed Add Ons" field, shown as card icons (hover for names)
+  var EXTRA_ICONS = [
+    ['securityPack', '🔒', 'Security Pack'],
+    ['biFolds', '🚪', 'Bi-folds'],
+    ['greenRoof', '🌿', 'Green Roof'],
+    ['joiningPanel', '🔗', 'Joining Panel'],
+    ['storageHooks', '🪝', 'Storage Hooks'],
+    ['endShelves', '🗄️', 'End Shelves'],
+    ['recyclingShelf', '♻️', 'Recycling Shelf'],
+    ['steadyracks', '🚲', 'Steadyracks'],
+    ['additionalStorage', '📦', 'Additional Storage'],
+    ['additionalNotes', '📝', 'Additional requirements']
+  ];
+
+  var FINISH_CLASSES = {
+    'field green': 'fc-field-green', 'mercury grey': 'fc-mercury-grey', 'mercury gray': 'fc-mercury-grey',
+    'bishop blue': 'fc-bishop-blue', 'slate blue': 'fc-slate-blue', 'signal white': 'fc-signal-white',
+    'anthracite': 'fc-anthracite', 'moss green': 'fc-moss-green',
+    'blackdown': 'fc-blackdown', 'cavepool': 'fc-cavepool-grey',
+    'clear uv': 'fc-clear-uv', 'ral': 'fc-ral-match'
+  };
+
+  var esc = App.esc;
+
+  // ── Boot ───────────────────────────────────────────────────
+  window.addEventListener('load', function () {
+    document.getElementById('viewNav').innerHTML = App.viewNav('scheduler');
+    loadData(false);
+  });
+
+  // Auto-refresh — but never mid-drag or with a modal open
+  setInterval(function () {
+    if (dragId || editingId || document.getElementById('editModal').classList.contains('show')) return;
+    loadData(false);
+  }, 15 * 60 * 1000);
+
+  function loadData(force) {
+    App.run('getSchedulerData', [force], {
+      ok: function (result) {
+        allJobs = result.jobs || [];
+        leaveData = (result.leave && result.leave.leaves) || [];
+        cacheTs = result.timestamp;
+        CFG = result.config || CFG;
+        if (result.leave && result.leave.error) {
+          App.showBanner('warn', '⚠ Timetastic unavailable — leave data not shown. ' + result.leave.error);
+        } else {
+          App.hideBanner();
+        }
+        updateMeta();
+        updateFilterOptions();
+        render();
+      },
+      err: function (e) {
+        App.showBanner('error', '⚠ Failed to load: ' + e.message);
+        document.getElementById('board').innerHTML =
+          '<div class="loading-wrap"><div>Error loading data. <a href="#" onclick="doRefresh();return false">Retry</a></div></div>';
+      }
+    });
+  }
+
+  function doRefresh() {
+    var btn = document.getElementById('btnRefresh');
+    btn.disabled = true;
+    btn.textContent = '⟳ Refreshing…';
+    App.run('invalidateLiveCache', [], {
+      ok: function () { loadData(true); btn.disabled = false; btn.textContent = '⟳ Refresh'; },
+      err: function () { btn.disabled = false; btn.textContent = '⟳ Refresh'; }
+    });
+  }
+
+  function updateMeta() {
+    document.getElementById('hdrMeta').textContent =
+      allJobs.length + ' live sheds  ·  ' +
+      allJobs.filter(function (j) { return !j.plannedWeek; }).length + ' unscheduled' +
+      (cacheTs ? '  ·  updated ' + App.fmtTime(new Date(cacheTs)) : '');
+  }
+
+  function openHelp()  { document.getElementById('helpModal').classList.add('show'); }
+  function closeHelp() { document.getElementById('helpModal').classList.remove('show'); }
+
+  // ── Search / filter ────────────────────────────────────────
+  function jobMatchesSearch(j) {
+    if (searchQuery) {
+      var hay = [j.jobRef||'', j.shedType||'', j.shedTypeCustomer||'', j.drawingNo||'', j.finish||'', j.shedDealNumber||''].join(' ').toLowerCase();
+      if (hay.indexOf(searchQuery.toLowerCase()) === -1) return false;
+    }
+    if (activeFilters.colour && j.finish !== activeFilters.colour) return false;
+    if (activeFilters.shedTypes.length) {
+      var jt = (j.shedType || '').toUpperCase();
+      var hit = activeFilters.shedTypes.some(function (t) { return jt.indexOf(t.toUpperCase()) === 0; });
+      if (!hit) return false;
+    }
+    if (activeFilters.noHours && j.buildDays) return false;
+    if (activeFilters.unscheduled && j.plannedWeek) return false;
+    if (activeFilters.overdue) {
+      var td = App.todayStr();
+      if (!j.planningDate || j.planningDate >= td) return false;
+    }
+    if (activeFilters.confirmedOnly && j.dispatchStatus !== 'confirmed') return false;
+    if (activeFilters.hasExtras) {
+      var e = j.extras || {};
+      if (!EXTRA_ICONS.some(function (x) { return e[x[0]]; })) return false;
+    }
+    return true;
+  }
+  function isAnyFilterActive() {
+    return !!(searchQuery || activeFilters.colour || activeFilters.shedTypes.length ||
+      activeFilters.unscheduled || activeFilters.overdue || activeFilters.confirmedOnly ||
+      activeFilters.hasExtras || activeFilters.noHours);
+  }
+  function onSearchInput(val) { searchQuery = val.trim(); applySearch(); }
+  function onFilterColour(val) { activeFilters.colour = val; applySearch(); }
+  // Type filter is a checkbox dropdown (multi-select)
+  function toggleTypeMenu() {
+    document.getElementById('filterTypeMenu').classList.toggle('open');
+  }
+  function onTypeTick(type, checked) {
+    var list = activeFilters.shedTypes;
+    var at = list.indexOf(type);
+    if (checked && at === -1) list.push(type);
+    if (!checked && at !== -1) list.splice(at, 1);
+    var btn = document.getElementById('filterTypeBtn');
+    btn.textContent = !list.length ? 'All types ▾'
+      : list.length === 1 ? list[0] + ' ▾'
+      : list.length + ' types ▾';
+    btn.classList.toggle('active', !!list.length);
+    applySearch();
+  }
+  document.addEventListener('click', function (e) {
+    if (!e.target.closest('#filterTypeWrap')) {
+      document.getElementById('filterTypeMenu').classList.remove('open');
+    }
+  });
+  function toggleChip(key) {
+    activeFilters[key] = !activeFilters[key];
+    var idMap = { unscheduled: 'chipUnscheduled', overdue: 'chipOverdue', confirmedOnly: 'chipConfirmed', hasExtras: 'chipHasExtras', noHours: 'chipNoHours' };
+    document.getElementById(idMap[key]).classList.toggle('active', activeFilters[key]);
+    applySearch();
+  }
+  function clearSearch() {
+    searchQuery = '';
+    activeFilters = { colour: '', shedTypes: [], unscheduled: false, overdue: false, confirmedOnly: false, hasExtras: false, noHours: false };
+    document.getElementById('searchInput').value = '';
+    document.getElementById('filterColour').value = '';
+    var typeBtn = document.getElementById('filterTypeBtn');
+    typeBtn.textContent = 'All types ▾';
+    typeBtn.classList.remove('active');
+    document.querySelectorAll('#filterTypeMenu input[type=checkbox]').forEach(function (cb) { cb.checked = false; });
+    ['chipUnscheduled','chipOverdue','chipConfirmed','chipHasExtras','chipNoHours'].forEach(function (id) {
+      document.getElementById(id).classList.remove('active');
+    });
+    applySearch();
+  }
+  function applySearch() {
+    var active = isAnyFilterActive();
+    document.getElementById('clearFilters').style.display = active ? '' : 'none';
+    var countEl = document.getElementById('searchCount');
+    countEl.style.display = active ? '' : 'none';
+    if (active) countEl.textContent = allJobs.filter(jobMatchesSearch).length + ' of ' + allJobs.length + ' jobs';
+    render();
+  }
+  function updateFilterOptions() {
+    var colours = {}, types = {};
+    allJobs.forEach(function (j) {
+      if (j.finish) colours[j.finish] = true;
+      if (j.shedType) types[j.shedType] = true;
+    });
+    var colSel = document.getElementById('filterColour');
+    var curCol = colSel.value;
+    colSel.innerHTML = '<option value="">All colours</option>' +
+      Object.keys(colours).sort().map(function (c) { return '<option value="' + esc(c) + '">' + esc(c) + '</option>'; }).join('');
+    colSel.value = curCol;
+    // Types: checkbox dropdown, ticks survive a data refresh. The menu's
+    // change listener is delegated once (checkboxes are rebuilt here).
+    var menu = document.getElementById('filterTypeMenu');
+    menu.innerHTML = Object.keys(types).sort().map(function (t) {
+      var on = activeFilters.shedTypes.indexOf(t) !== -1;
+      return '<label><input type="checkbox" value="' + esc(t) + '"' + (on ? ' checked' : '') + '> ' + esc(t) + '</label>';
+    }).join('');
+    if (!menu.dataset.wired) {
+      menu.dataset.wired = '1';
+      menu.addEventListener('change', function (e) {
+        if (e.target.type === 'checkbox') onTypeTick(e.target.value, e.target.checked);
+      });
+    }
+    // Drop ticked types that vanished from the data (job completed etc.)
+    activeFilters.shedTypes = activeFilters.shedTypes.filter(function (t) { return types[t]; });
+  }
+
+  // ── Render ─────────────────────────────────────────────────
+  function render() {
+    renderSidebar();
+    renderBoard();
+    renderChase();
+    if (openDayPanelWeek !== null) renderDayPanel(openDayPanelWeek);
+  }
+
+  // ── Chase banners: drawings (SKP/LYT) + sedum buying ────────
+  // Ported from the old Live Jobs Tracker (Dan, 2026-07-16). Bespoke jobs
+  // must not start production until Dan has done the SketchUp model (SKP)
+  // and layout (LYT); green-roof jobs need sedum ordered in good time.
+  function renderChase() {
+    var el = document.getElementById('chaseArea');
+    if (!el) return;
+    var live = function (j) { return (j.stagesDone || 0) < (CFG.stages || []).length; };
+    var byDate = function (a, b) { return (a.planningDate || 'zzzz').localeCompare(b.planningDate || 'zzzz'); };
+
+    var missing = allJobs.filter(function (j) {
+      return j.needsDrawings && (!j.skpDone || !j.lytDone) && live(j) && !j.onHold;
+    }).sort(byDate);
+    var sedum = allJobs.filter(function (j) {
+      return j.extras && j.extras.greenRoof && !j.sedumOrdered && live(j) && !j.onHold;
+    }).sort(byDate);
+
+    var html = '';
+    if (missing.length) {
+      html += '<details class="chase chase-skp"><summary>📐 Drawings needed — ' +
+        missing.length + ' job' + (missing.length === 1 ? '' : 's') + ' (bespoke/BAY) awaiting SKP/LYT</summary>' +
+        missing.map(function (j) {
+          return '<div class="chase-row">' +
+            '<span class="chase-name">' + esc(j.jobRef || j.id) + '</span>' +
+            '<span class="chase-date">' + (j.planningDate ? 'dispatch ' + App.fmtDayMonth(j.planningDate) : 'no date') + '</span>' +
+            (j.skpDone ? '<span class="chase-done">✓ SKP</span>'
+                       : '<button class="chase-btn" data-act="tick-gate" data-id="' + esc(j.id) + '" data-field="skp">SKP done</button>') +
+            (j.lytDone ? '<span class="chase-done">✓ LYT</span>'
+                       : '<button class="chase-btn" data-act="tick-gate" data-id="' + esc(j.id) + '" data-field="lyt">LYT done</button>') +
+          '</div>';
+        }).join('') + '</details>';
+    }
+    if (sedum.length) {
+      html += '<details class="chase chase-sedum"><summary>🌿 Buy sedum — ' +
+        sedum.length + ' green-roof job' + (sedum.length === 1 ? '' : 's') + ' coming up</summary>' +
+        sedum.map(function (j) {
+          return '<div class="chase-row">' +
+            '<span class="chase-name">' + esc(j.jobRef || j.id) + '</span>' +
+            '<span class="chase-date">' + (j.planningDate ? 'dispatch ' + App.fmtDayMonth(j.planningDate) : 'no date') + '</span>' +
+            '<button class="chase-btn" data-act="tick-gate" data-id="' + esc(j.id) + '" data-field="sedum">Sedum ordered</button>' +
+          '</div>';
+        }).join('') + '</details>';
+    }
+    el.innerHTML = html;
+  }
+
+  function tickGate(id, field) {
+    var job = jobById(id);
+    if (!job) return;
+    var today = App.todayStr();
+    var alloc = {};
+    if (field === 'skp')   { alloc.skp_done = 'TRUE'; alloc.skp_done_date = today; job.skpDone = true; job.skpDoneDate = today; }
+    if (field === 'lyt')   { alloc.lyt_done = 'TRUE'; alloc.lyt_done_date = today; job.lytDone = true; job.lytDoneDate = today; }
+    if (field === 'sedum') { alloc.sedum_ordered = 'TRUE'; job.sedumOrdered = true; }
+    App.run('saveAllocation', [id, alloc], {
+      rollback: function () {
+        if (field === 'skp') job.skpDone = false;
+        if (field === 'lyt') job.lytDone = false;
+        if (field === 'sedum') job.sedumOrdered = false;
+        render();
+      }
+    });
+    render();
+  }
+
+  function renderSidebar() {
+    var unscheduled = allJobs
+      .filter(function (j) { return !j.plannedWeek; })
+      .sort(function (a, b) { return (a.planningDate || 'zzzz').localeCompare(b.planningDate || 'zzzz'); });
+    document.getElementById('unscheduledCount').textContent = unscheduled.length;
+    var visible = isAnyFilterActive() ? unscheduled.filter(jobMatchesSearch) : unscheduled;
+    document.getElementById('sidebarBody').innerHTML = visible.length
+      ? visible.map(function (j) { return buildCard(j, false); }).join('')
+      : (unscheduled.length ? '<div class="sidebar-empty">No matches</div>'
+                            : '<div class="sidebar-empty">All sheds scheduled ✓</div>');
+  }
+
+  function renderBoard() {
+    var weeksShown = focusMode ? 1 : 4;
+    var html = '';
+    for (var w = 0; w < weeksShown; w++) html += buildWeekCol(weekOffset + w);
+    var boardEl = document.getElementById('board');
+    boardEl.innerHTML = html;
+    boardEl.classList.toggle('focus-mode', focusMode);
+  }
+
+  function toggleFocusMode() {
+    focusMode = !focusMode;
+    document.getElementById('btnFocus').innerHTML = focusMode
+      ? '&#9974; 4-week view' : '&#9974; Focus week';
+    render();
+  }
+
+  function buildWeekCol(weekIdx) {
+    var weekDays = App.weekDates(weekIdx);
+    var weekStr = App.isoWeekOfDate(weekDays[0]);
+    var weekNum = parseInt(weekStr.split('-W')[1], 10);
+    var rangeStr = App.fmtDayMonth(App.isoDateStr(weekDays[0])) + '–' + App.fmtDayMonth(App.isoDateStr(weekDays[4]));
+
+    var jobsInWeek = allJobs.filter(function (j) { return j.plannedWeek === weekStr; });
+
+    // Capacity — shown as man-hours net of leave (Dan: hours are more
+    // meaningful on the floor than an abstract "worker-days" count).
+    var hrsPerDay = CFG.productiveHrsPerDay || 6.5;
+    var workerHoursFull = CFG.teamCount * CFG.daysPerWeek * hrsPerDay;
+    var leaveCount = calcLeaveForWeek(weekDays);
+    var availHours = workerHoursFull - (leaveCount * hrsPerDay);
+    var estimated = jobsInWeek.filter(function (j) { return j.buildDays; });
+    var unestimated = jobsInWeek.length - estimated.length;
+    var usedHours = estimated.reduce(function (s, j) { return s + j.buildDays * hrsPerDay; }, 0);
+    var capPct = availHours > 0 ? (usedHours / availHours) * 100 : 0;
+    var capCls = capPct > 100 ? 'red' : capPct > 80 ? 'amber' : '';
+
+    // Spray load — the booth is the workshop's capacity meter.
+    // Weekly target = 2.5–3 jobs/day; max = 4/day.
+    var sprayBatches = calcSprayBatches(jobsInWeek);
+    var sprayTarget = Math.round(CFG.spray.targetPerDayMax * CFG.spray.daysPerWeek);
+    var sprayMax = CFG.spray.maxPerDay * CFG.spray.daysPerWeek;
+    var sprayCount = jobsInWeek.length;
+    var sprayOver = sprayCount > sprayMax;
+
+    var leavees = getLeaveesForWeek(weekDays);
+    var leavePills = leavees.map(function (n) {
+      return '<span class="leave-pill">' + esc(n.split(' ')[0]) + '</span>';
+    }).join('');
+
+    // Pool = in this week but no spray day yet; lanes = one per weekday
+    var today = App.todayStr();
+    var pool = jobsInWeek.filter(function (j) {
+      return !j.plannedSprayDate || App.isoWeekOfIso(j.plannedSprayDate) !== weekStr;
+    });
+    var poolHtml = '<div class="pool-zone" data-drop="' + esc(weekStr) + '">' +
+      '<div class="pool-label">No spray day yet (' + pool.length + ')</div>' +
+      (pool.length ? pool.map(function (j) { return buildCard(j, true); }).join('')
+                   : '<div style="font-size:11px;color:#bbb;text-align:center;padding:4px">Drag jobs here for this week</div>') +
+    '</div>';
+
+    var lanesHtml = weekDays.map(function (d, i) {
+      var dayStr = App.isoDateStr(d);
+      var laneJobs = jobsInWeek.filter(function (j) { return j.plannedSprayDate === dayStr; });
+      var n = laneJobs.length;
+      var meterCls = n === 0 ? '' : n < CFG.spray.targetPerDayMin ? 'm-low'
+        : n <= CFG.spray.targetPerDayMax ? 'm-ok'
+        : n <= CFG.spray.maxPerDay ? 'm-high' : 'm-over';
+      var onLeave = countLeaveOnDay(dayStr);
+      var hours = Math.round((CFG.teamCount - onLeave) * CFG.productiveHrsPerDay);
+
+      // Flag mixed colours on a busy day — 3+ jobs sprayed is fine if they're
+      // the same finish (one run), but a colour clash means extra booth
+      // changeovers even though the raw count looks on-target.
+      var laneFinishes = {};
+      laneJobs.forEach(function (j) { laneFinishes[(j.finish || 'Unknown')] = true; });
+      var distinctFinishes = Object.keys(laneFinishes);
+      var colourClash = n >= 3 && distinctFinishes.length > 1;
+
+      var hol = (CFG.bankHolidays || {})[dayStr] || '';
+      return '<div class="day-lane' + (dayStr === today ? ' today-lane' : '') + (hol ? ' bankhol' : '') + '" ' +
+        (hol ? 'title="' + esc(hol) + ' — bank holiday" ' : '') +
+        'data-drop="' + esc(weekStr + '|' + dayStr) + '" id="lane-' + dayStr + '">' +
+        '<div class="lane-hdr">' +
+          '<span class="lane-day">' + App.DAYS_SHORT[i] + ' ' + App.fmtDayMonth(dayStr) +
+            (hol ? ' <span class="hol-tag">🏖 ' + esc(hol) + '</span>' : '') + '</span>' +
+          '<span class="lane-hours">' + hours + 'h</span>' +
+          '<span class="spray-meter ' + meterCls + '" title="Sprayed this day — target ' +
+            CFG.spray.targetPerDayMin + '–' + CFG.spray.targetPerDayMax + ', max ' + CFG.spray.maxPerDay + '">🎨 ' + n + '</span>' +
+          (colourClash ? '<span class="colour-clash" title="' + esc(distinctFinishes.length) + ' different colours in one day (' +
+            esc(distinctFinishes.join(', ')) + ') — extra booth changeovers">⚠ mixed</span>' : '') +
+        '</div>' +
+        laneJobs.map(function (j) { return buildCard(j, true); }).join('') +
+      '</div>';
+    }).join('');
+
+    var sprayHtml = '';
+    if (jobsInWeek.length) {
+      var panelOpen = !!sprayPanelOpen[weekStr];
+      sprayHtml = '<div class="spray-section' + (panelOpen ? ' open' : '') + '">' +
+        '<div class="spray-section-hdr" data-act="spray-panel" data-week="' + esc(weekStr) + '">' +
+          '<span class="spray-section-title">🎨 ' + sprayBatches.length + ' colour' + (sprayBatches.length === 1 ? '' : 's') +
+            (sprayOver ? ' <span style="color:#e53935">⚠ over capacity</span>' : '') + '</span>' +
+          '<span class="spray-section-chevron">&#9656;</span>' +
+        '</div>' +
+        '<div class="spray-section-body">' +
+          sprayBatches.map(function (b) {
+            return '<div class="spray-batch">' + esc(b.finish) + ' &times;' + b.count + '</div>';
+          }).join('') +
+          (sprayOver ? '<div style="font-size:11px;color:#e53935;margin-top:4px">⚠ ' + sprayCount + '/' + sprayMax + ' — over booth capacity (' + CFG.spray.maxPerDay + '/day max)</div>' : '') +
+        '</div>' +
+      '</div>';
+    }
+
+    return '<div class="week-col" id="wk-' + esc(weekStr) + '" data-drop="' + esc(weekStr) + '">' +
+      '<div class="week-hdr" data-act="day-panel" data-week-idx="' + weekIdx + '" title="Click for day-by-day view">' +
+        '<div class="week-title">Week ' + weekNum + ' · ' + rangeStr +
+          '<button class="btn-plan" data-act="plan-sprays" data-week-idx="' + weekIdx + '" ' +
+            'title="Auto-assign spray days: batches by finish, ' + CFG.spray.targetPerDayMax + '/day">🎨 Plan sprays</button></div>' +
+        (leavePills ? '<div class="leave-pills">' + leavePills + '</div>' : '') +
+        '<div class="cap-bar-wrap">' +
+          '<div class="cap-bar-label"><span>Capacity</span><span>' +
+            Math.round(usedHours) + ' / ' + Math.round(availHours) + ' hrs</span></div>' +
+          '<div class="cap-bar-track"><div class="cap-bar-fill ' + capCls + '" style="width:' + Math.min(100, capPct) + '%"></div></div>' +
+          (unestimated ? '<div class="cap-note">+' + unestimated + ' bespoke job' + (unestimated > 1 ? 's' : '') + ' not counted — set hours via ✎ (or estimated_build_hours in HubSpot)</div>' : '') +
+        '</div>' +
+        '<div class="spray-summary"><span>Spray load <span class="day-view-hint">Day view &rsaquo;</span></span>' +
+          '<span class="' + (sprayOver ? 'over' : '') + '">' + sprayCount + ' / ' + sprayTarget +
+          ' target (max ' + sprayMax + ')</span></div>' +
+      '</div>' +
+      '<div class="week-body">' + poolHtml + lanesHtml + '</div>' +
+      sprayHtml +
+    '</div>';
+  }
+
+  function buildCard(job, inBoard) {
+    var today = App.todayStr();
+    var dCls = 'date-badge', dLabel;
+    if (job.onHold) { dLabel = '⏸ ON HOLD'; dCls += ' hold'; }
+    else if (!job.planningDate) { dLabel = 'No date'; dCls += ' nodate'; }
+    else {
+      dLabel = App.fmtDayMonth(job.planningDate);
+      if (job.planningDate < today) dCls += ' red';
+      else if (App.daysBetween(today, job.planningDate) <= 14) dCls += ' amber';
+    }
+
+    var statusPill = job.dispatchStatus
+      ? '<span class="status-pill status-' + esc(job.dispatchStatus) + '">' + esc(job.dispatchStatus) + '</span>' : '';
+    if (job.plannedSprayDate) {
+      var frameBy = App.addWorkingDaysIso(job.plannedSprayDate, -CFG.leadDays.frameToSpray);
+      // Persistent warning when the spray date leaves too little room before
+      // dispatch (amber = under the buffer, red = after dispatch itself)
+      var sprayCls = 'spray-chip', sprayWarn = '';
+      if (job.planningDate) {
+        var sGap = countWorkingDaysBetween(job.plannedSprayDate, job.planningDate);
+        if (sGap < 0) { sprayCls += ' late'; sprayWarn = '⚠ SPRAYS AFTER DISPATCH! '; }
+        else if (sGap < CFG.leadDays.sprayToDispatchMin) {
+          sprayCls += ' tight';
+          sprayWarn = '⚠ only ' + sGap + ' working day' + (sGap === 1 ? '' : 's') +
+            ' before dispatch (needs ' + CFG.leadDays.sprayToDispatchMin + '). ';
+        }
+      }
+      statusPill += '<span class="' + sprayCls + '" title="' + sprayWarn + 'Spray ' + esc(App.fmtDayMonth(job.plannedSprayDate)) +
+        ' · frame by ' + esc(App.fmtDayMonth(frameBy)) +
+        (job.plannedAssemblyDate ? ' · assemble ' + esc(App.fmtDayMonth(job.plannedAssemblyDate)) : '') +
+        '">' + (sprayWarn ? '⚠ ' : '') + '🎨 ' + esc(App.fmtDayMonth(job.plannedSprayDate)) + '</span>';
+    }
+
+    if (job.needsDrawings && (!job.skpDone || !job.lytDone)) {
+      statusPill += '<span class="gate-chip" title="Drawings incomplete — ' +
+        (!job.skpDone ? 'SKP' : '') + (!job.skpDone && !job.lytDone ? ' + ' : '') + (!job.lytDone ? 'LYT' : '') +
+        ' needed before production starts (tick in ✎ or the Drawings banner)">📐 drawings</span>';
+    }
+
+    // Build time shown in hours (workshop language) — stored as days.
+    // NO build time at all (bespoke without an estimate, or a model
+    // missing from BUILD_DAYS like P2/P4/V4/R5) is a planning hazard:
+    // the job counts 0 in capacity — flag it loudly (Dan, 2026-08-07).
+    var daysTxt = '', daysCls = 'card-days';
+    if (job.buildDays) daysTxt = (Math.round(job.buildDays * (CFG.productiveHrsPerDay || 6.5) * 10) / 10) + 'h';
+    else {
+      daysTxt = '⚠ NO HOURS' + (job.isBespoke ? ' (bespoke)' : '');
+      daysCls += ' nohours';
+    }
+
+    var stageCount = CFG.stages.length || 10;
+    var dots = '';
+    for (var i = 0; i < stageCount; i++) {
+      dots += '<span class="sdot' + (i < (job.stagesDone || 0) ? ' done' : '') + '"></span>';
+    }
+
+    var extraIcons = '', extraNames = [];
+    if (job.extras) {
+      EXTRA_ICONS.forEach(function (x) {
+        if (job.extras[x[0]]) { extraIcons += x[1]; extraNames.push(x[2]); }
+      });
+    }
+
+    var lockedCls = job.weekLocked ? ' locked' : '';
+    var draggable = !job.weekLocked ? 'draggable="true"' : '';
+    var dimCls = (inBoard && isAnyFilterActive() && !jobMatchesSearch(job)) ? ' card-dim' : '';
+
+    var ref = esc(job.jobRef || job.shedDealNumber || ('Shed ' + job.id));
+    var sub = esc(job.shedTypeCustomer || job.shedType || '');
+    if (job.finish) sub += (sub ? ' · ' : '') + esc(job.finish);
+
+    return '<div class="job-card ' + finishClass(job.finish) + lockedCls + dimCls + '" id="jc-' + esc(job.id) + '" ' +
+      draggable + ' data-card-id="' + esc(job.id) + '">' +
+      '<button class="card-edit" draggable="false" title="Edit job — build time, notes, week lock" ' +
+        'data-act="edit" data-id="' + esc(job.id) + '">&#9998;</button>' +
+      '<div class="card-body">' +
+        '<div class="card-ref">' + ref + (job.multipleNumber ? ' <small style="color:#888">(' + esc(job.multipleNumber) + ')</small>' : '') + '</div>' +
+        (sub ? '<div class="card-type">' + sub + '</div>' : '') +
+        '<div class="card-row">' +
+          '<span class="' + dCls + '">' + dLabel + '</span>' +
+          statusPill +
+          (daysTxt ? '<span class="' + daysCls + '">' + esc(daysTxt) + '</span>' : '') +
+        '</div>' +
+        '<div class="card-stages">' + dots + '</div>' +
+        (extraIcons ? '<div class="card-extras" title="' + esc(extraNames.join(' · ')) + '">' + extraIcons + '</div>' : '') +
+        (job.notes ? '<div style="font-size:11px;color:#888;margin-top:3px;font-style:italic">' + esc(job.notes.substring(0, 60)) + (job.notes.length > 60 ? '…' : '') + '</div>' : '') +
+      '</div>' +
+    '</div>';
+  }
+
+  // ── Drag and drop (with rollback on failed save) ───────────
+  function onDragStart(e, id) {
+    var job = jobById(id);
+    if (job && job.weekLocked) { e.preventDefault(); return; }
+    dragId = id;
+    e.dataTransfer.effectAllowed = 'move';
+    setTimeout(function () {
+      var el = document.getElementById('jc-' + id);
+      if (el) el.classList.add('dragging');
+    }, 0);
+  }
+  function onDragEnd() {
+    if (dragId) {
+      var el = document.getElementById('jc-' + dragId);
+      if (el) el.classList.remove('dragging');
+    }
+    dragId = null;
+    document.querySelectorAll('.week-col.drag-over, .sidebar-body.drag-over')
+      .forEach(function (el) { el.classList.remove('drag-over'); });
+  }
+  function onDragOver(e, target) {
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = 'move';
+    var el = target === 'unscheduled' ? document.getElementById('sidebarBody')
+      : target.indexOf('|') > -1 ? document.getElementById('lane-' + target.split('|')[1])
+      : document.getElementById('wk-' + target);
+    if (el) el.classList.add('drag-over');
+  }
+  function onDragLeave(e) {
+    if (e.currentTarget) e.currentTarget.classList.remove('drag-over');
+  }
+  function onDrop(e, target) {
+    e.preventDefault();
+    e.stopPropagation();   // day lanes sit inside week columns — don't double-fire
+    if (!dragId) return;
+    // Clear drag state BEFORE render() — Chrome fires dragend on the
+    // dragged node, and once render() has replaced it the event never
+    // reaches the document listener, leaving dragId stuck (which blocks
+    // the auto-refresh).
+    var id = dragId;
+    onDragEnd();
+    document.querySelectorAll('.drag-over').forEach(function (el) { el.classList.remove('drag-over'); });
+
+    var job = jobById(id);
+    if (!job) return;
+
+    // Target forms: 'unscheduled' | '2026-W29' | '2026-W29|2026-07-14' (spray day)
+    var newWeek = '', newSpray = null;
+    if (target !== 'unscheduled') {
+      var parts = target.split('|');
+      newWeek = parts[0];
+      newSpray = parts[1] || null;
+    }
+
+    var prevWeek = job.plannedWeek, prevSpray = job.plannedSprayDate, prevAsm = job.plannedAssemblyDate;
+
+    if (newSpray && newSpray !== prevSpray && !checkSprayDateAgainstDispatch(job, newSpray)) {
+      return;   // user cancelled at the warning — leave the card where it was
+    }
+
+    var alloc = { planned_week: newWeek || null };
+    job.plannedWeek = newWeek;
+    if (newSpray) {
+      // Dropped on a spray-day lane: set spray + auto assembly (+2 working days)
+      job.plannedSprayDate = newSpray;
+      job.plannedAssemblyDate = App.addWorkingDaysIso(newSpray, CFG.leadDays.sprayToAssembly);
+      alloc.planned_spray_date = newSpray;
+      alloc.planned_assembly_date = job.plannedAssemblyDate;
+    } else if (!newWeek || (job.plannedSprayDate && App.isoWeekOfIso(job.plannedSprayDate) !== newWeek)) {
+      // Off the board, or week changed away from the spray date: clear day plan
+      if (job.plannedSprayDate) {
+        job.plannedSprayDate = '';
+        job.plannedAssemblyDate = '';
+        alloc.planned_spray_date = null;
+        alloc.planned_assembly_date = null;
+      }
+    }
+    if (prevWeek === job.plannedWeek && prevSpray === job.plannedSprayDate) return;
+
+    render();
+    updateMeta();
+    App.run('saveAllocation', [job.id, alloc], {
+      rollback: function () {
+        job.plannedWeek = prevWeek;
+        job.plannedSprayDate = prevSpray;
+        job.plannedAssemblyDate = prevAsm;
+        render();
+        updateMeta();
+      }
+    });
+  }
+
+  // ── Auto spray planning: batch by finish, fill Mon–Fri ─────
+  function planSprays(weekIdx) {
+    var weekDays = App.weekDates(weekIdx).map(App.isoDateStr);
+    var weekStr = App.isoWeekOfDate(App.weekDates(weekIdx)[0]);
+    var jobsInWeek = allJobs.filter(function (j) { return j.plannedWeek === weekStr; });
+    // On-hold jobs are skipped by auto-fill (still schedulable by hand — a
+    // deliberate drag isn't "automatic scheduling"). Dan, 2026-07-15.
+    var unplanned = jobsInWeek.filter(function (j) {
+      return !j.onHold && (!j.plannedSprayDate || App.isoWeekOfIso(j.plannedSprayDate) !== weekStr);
+    });
+    var heldCount = jobsInWeek.filter(function (j) { return j.onHold; }).length;
+    if (!unplanned.length) {
+      App.showBanner('warn', heldCount
+        ? 'Every schedulable job in week ' + weekStr.split('-W')[1] + ' already has a spray day (' + heldCount + ' on hold, skipped).'
+        : 'Every job in week ' + weekStr.split('-W')[1] + ' already has a spray day.');
+      return;
+    }
+
+    // Current load + finishes per day
+    var count = {}, dayFinishes = {};
+    weekDays.forEach(function (d) { count[d] = 0; dayFinishes[d] = {}; });
+    jobsInWeek.forEach(function (j) {
+      if (j.plannedSprayDate && count[j.plannedSprayDate] !== undefined) {
+        count[j.plannedSprayDate]++;
+        dayFinishes[j.plannedSprayDate][(j.finish || '').toLowerCase()] = true;
+      }
+    });
+
+    // Group by finish (same colour lands on the same day), then order the
+    // groups by their most urgent dispatch date — the earliest-dispatching
+    // colour gets the earliest spray days (Dan, 2026-07-16: Guppy dispatched
+    // 13 Aug but sprayed LAST under the old largest-group-first order).
+    var groups = {};
+    unplanned.forEach(function (j) {
+      var f = (j.finish || 'unknown').toLowerCase();
+      (groups[f] = groups[f] || []).push(j);
+    });
+    function groupUrgency(f) {
+      var dates = groups[f].map(function (j) { return j.planningDate || '9999-12-31'; });
+      return dates.sort()[0];
+    }
+    var ordered = Object.keys(groups).sort(function (a, b) {
+      var u = groupUrgency(a).localeCompare(groupUrgency(b));
+      return u !== 0 ? u : groups[b].length - groups[a].length;
+    });
+    // Within a colour, most urgent job first (matters if the group splits
+    // across days at the booth cap)
+    ordered.forEach(function (f) {
+      groups[f].sort(function (a, b) {
+        return (a.planningDate || '9999').localeCompare(b.planningDate || '9999');
+      });
+    });
+
+    var entries = [], leftover = 0, tightJobs = [];
+    ordered.forEach(function (f) {
+      groups[f].forEach(function (job) {
+        // Prefer the EARLIEST day already spraying this finish (within
+        // target), else the earliest day under target, else the earliest
+        // under the hard max. First-fit (not emptiest) so urgent colours,
+        // which are processed first, land early in the week.
+        var day = null;
+        for (var di = 0; di < weekDays.length && !day; di++) {
+          if (count[weekDays[di]] < CFG.spray.targetPerDayMax && dayFinishes[weekDays[di]][f]) day = weekDays[di];
+        }
+        for (di = 0; di < weekDays.length && !day; di++) {
+          if (count[weekDays[di]] < CFG.spray.targetPerDayMax) day = weekDays[di];
+        }
+        for (di = 0; di < weekDays.length && !day; di++) {
+          if (count[weekDays[di]] < CFG.spray.maxPerDay) day = weekDays[di];
+        }
+        if (!day) { leftover++; return; }
+        count[day]++;
+        dayFinishes[day][f] = true;
+        var asm = App.addWorkingDaysIso(day, CFG.leadDays.sprayToAssembly);
+        job.plannedSprayDate = day;
+        job.plannedAssemblyDate = asm;
+        entries.push({ shedId: job.id, planned_week: weekStr, planned_spray_date: day, planned_assembly_date: asm });
+        // Auto-fill batches many jobs at once — a confirm() per job would be
+        // unusable, so tight/overrun gaps are collected and reported together.
+        if (job.planningDate) {
+          var gap = countWorkingDaysBetween(day, job.planningDate);
+          if (gap < CFG.leadDays.sprayToDispatchMin) tightJobs.push({ job: job, gap: gap });
+        }
+      });
+    });
+
+    render();
+    if (leftover) App.showBanner('warn', '⚠ ' + leftover + ' job' + (leftover > 1 ? 's' : '') +
+      ' left without a spray day — the booth is at ' + CFG.spray.maxPerDay + '/day capacity this week.');
+    else if (tightJobs.length) App.showBanner('warn', '⚠ ' + tightJobs.length + ' job' + (tightJobs.length > 1 ? 's' : '') +
+      ' scheduled with less than ' + CFG.leadDays.sprayToDispatchMin + ' working days before dispatch — review: ' +
+      tightJobs.map(function (t) { return (t.job.jobRef || t.job.id) + (t.gap < 0 ? ' (AFTER dispatch!)' : ' (' + t.gap + 'd)'); }).join(', '));
+    if (entries.length) App.run('saveSprayPlan', [entries], {});
+  }
+
+  // ── Spray-date guard rails ──────────────────────────────────
+  // Working days from a to b (positive if b is after a, negative if before).
+  function countWorkingDaysBetween(aIso, bIso) {
+    if (aIso === bIso) return 0;
+    var sign = bIso > aIso ? 1 : -1;
+    var d = App.parseIso(sign === 1 ? aIso : bIso);
+    var endD = App.parseIso(sign === 1 ? bIso : aIso);
+    var count = 0;
+    while (d < endD) {
+      d.setDate(d.getDate() + 1);
+      if (d.getDay() !== 0 && d.getDay() !== 6) count++;
+    }
+    return count * sign;
+  }
+
+  // Returns true if it's fine to proceed (no dispatch date to check against,
+  // or the user confirmed anyway); false if the user backed out. This is
+  // what stops a mistyped date silently carrying a job off into next month.
+  function checkSprayDateAgainstDispatch(job, newSpray) {
+    if (!newSpray || !job.planningDate) return true;
+    var gap = countWorkingDaysBetween(newSpray, job.planningDate);
+    var ref = job.jobRef || job.id;
+    if (gap < 0) {
+      return confirm('⚠ ' + ref + ': this spray date (' + App.fmtDateFull(newSpray) +
+        ') is AFTER the dispatch date (' + App.fmtDateFull(job.planningDate) + ').\n\n' +
+        'That\'s almost certainly a mistake. Schedule it anyway?');
+    }
+    if (gap < CFG.leadDays.sprayToDispatchMin) {
+      return confirm('⚠ ' + ref + ': only ' + gap + ' working day' + (gap === 1 ? '' : 's') +
+        ' between this spray date and dispatch (' + App.fmtDateFull(job.planningDate) + ').\n\n' +
+        'Recommended minimum is ' + CFG.leadDays.sprayToDispatchMin + ' working days (2 for assembly + 2 buffer). Schedule it anyway?');
+    }
+    return true;
+  }
+
+  function toggleSprayPanel(weekStr) {
+    sprayPanelOpen[weekStr] = !sprayPanelOpen[weekStr];
+    render();
+  }
+
+  function countLeaveOnDay(dayStr) {
+    var n = 0;
+    leaveData.forEach(function (l) {
+      if (l.startDate <= dayStr && l.endDate >= dayStr) n++;
+    });
+    return n;
+  }
+
+  // ── Day view panel ─────────────────────────────────────────
+  function openDayPanel(weekIdx) {
+    openDayPanelWeek = weekIdx;
+    renderDayPanel(weekIdx);
+    document.getElementById('dayPanel').classList.add('open');
+  }
+  function renderDayPanel(weekIdx) {
+    var weekDays = App.weekDates(weekIdx);
+    var weekStr = App.isoWeekOfDate(weekDays[0]);
+    var weekNum = parseInt(weekStr.split('-W')[1], 10);
+    var jobsInWeek = allJobs.filter(function (j) { return j.plannedWeek === weekStr; });
+
+    document.getElementById('dayPanelTitle').textContent = 'Week ' + weekNum + ' — Day view';
+
+    // The panel reads across ALL jobs so assemblies from last week's sprays
+    // still show on the day they land.
+    var html = '';
+    for (var d = 0; d < 5; d++) {
+      var dayStr = App.isoDateStr(weekDays[d]);
+      var spraying = allJobs.filter(function (j) { return j.plannedSprayDate === dayStr; });
+      var assembling = allJobs.filter(function (j) { return j.plannedAssemblyDate === dayStr; });
+      var framing = allJobs.filter(function (j) {
+        return j.plannedSprayDate &&
+          App.addWorkingDaysIso(j.plannedSprayDate, -CFG.leadDays.frameToSpray) === dayStr;
+      });
+      var onLeave = leaveData.filter(function (l) {
+        return l.startDate <= dayStr && l.endDate >= dayStr;
+      }).map(function (l) { return l.name.split(' ')[0]; });
+
+      var hol = (CFG.bankHolidays || {})[dayStr] || '';
+      html += '<div class="day-col' + (hol ? ' bankhol' : '') + '"><div class="day-col-title">' +
+        App.DAYS_SHORT[d] + ' ' + App.fmtDayMonth(dayStr) +
+        (hol ? ' <span class="hol-tag">🏖 ' + esc(hol) + '</span>' : '') +
+        (onLeave.length ? ' <span style="font-size:11px;color:#b71c1c;font-weight:400">— ' + esc(onLeave.join(', ')) + ' off</span>' : '') +
+        '</div>';
+
+      [['🪚 Frame / cut start', framing], ['🎨 Spraying', spraying], ['🔧 Assembling', assembling]]
+        .forEach(function (section) {
+          var jobs = section[1];
+          html += '<div class="day-session' + (jobs.length ? ' has-job' : '') + '">' +
+            '<div class="day-session-label">' + section[0] + (jobs.length ? ' (' + jobs.length + ')' : '') + '</div>';
+          if (jobs.length) {
+            html += jobs.map(function (j) {
+              return '<div class="day-session-job">' + esc(j.jobRef || j.id) +
+                (j.finish ? ' <span style="font-weight:400;color:#888">· ' + esc(j.finish) + '</span>' : '') + '</div>';
+            }).join('');
+          }
+          html += '</div>';
+        });
+      html += '</div>';
+    }
+    document.getElementById('dayPanelBody').innerHTML = html;
+  }
+  function closeDayPanel() {
+    openDayPanelWeek = null;
+    document.getElementById('dayPanel').classList.remove('open');
+  }
+
+  // ── Edit modal ─────────────────────────────────────────────
+  function openEditModal(id) {
+    editingId = id;
+    var job = jobById(id);
+    if (!job) return;
+    document.getElementById('editModalTitle').textContent = job.jobRef || job.id;
+    // Shed type / finish / every add-on with its value, so the planner can
+    // see what the job involves without opening the Tracker or HubSpot
+    var info = [];
+    if (job.shedTypeCustomer || job.shedType) info.push(esc(job.shedTypeCustomer || job.shedType));
+    if (job.finish) info.push(esc(job.finish));
+    var exBits = [];
+    EXTRA_ICONS.forEach(function (x) {
+      var v = (job.extras || {})[x[0]];
+      if (!v || x[0] === 'additionalNotes') return;
+      exBits.push(x[1] + ' ' + x[2] + (typeof v === 'string' && v !== 'true' ? ': ' + esc(v) : ''));
+    });
+    var addNotes = (job.extras && job.extras.additionalNotes) ? stripHtml(job.extras.additionalNotes) : '';
+    document.getElementById('editJobInfo').innerHTML =
+      info.join(' · ') +
+      (exBits.length ? '<br><strong>Add-ons:</strong> ' + exBits.join(' · ') : '') +
+      (addNotes ? '<br><strong>Additional requirements:</strong> ' + esc(addNotes) : '');
+    // The override is ENTERED and SHOWN in hours (workshop language) but
+    // STORED in days (override_build_days) so the scheduling maths and the
+    // sheet schema stay unchanged. Convert both ways at the modal boundary.
+    var hrsPerDay = CFG.productiveHrsPerDay || 6.5;
+    document.getElementById('editBuildHours').value =
+      job.overrideBuildDays !== null && job.overrideBuildDays !== undefined
+        ? Math.round(job.overrideBuildDays * hrsPerDay * 10) / 10 : '';
+    var refBits = [];
+    if (job.standardBuildDays) {
+      refBits.push('Standard ' + esc(job.shedType || '') + ': ' +
+        (Math.round(job.standardBuildDays * hrsPerDay * 10) / 10) + 'h');
+    }
+    if (job.estBuildHours) {
+      refBits.push('HubSpot estimate: ' + job.estBuildHours + 'h' +
+        (job.overrideBuildDays === null || job.overrideBuildDays === undefined ? ' (in use)' : ''));
+    }
+    if (!job.standardBuildDays && !job.estBuildHours) {
+      refBits.push('Bespoke — no standard time. Set hours here (or estimated_build_hours in HubSpot) so it counts in capacity.');
+    }
+    document.getElementById('editBuildRef').innerHTML = refBits.join(' · ');
+    document.getElementById('editSpray').value = job.plannedSprayDate || '';
+    document.getElementById('editAsm').value = job.plannedAssemblyDate || '';
+    updateFrameHint();
+    document.getElementById('editSpray').onchange = function () {
+      // Auto-fill assembly (+2 working days) when spray changes
+      if (this.value) document.getElementById('editAsm').value =
+        App.addWorkingDaysIso(this.value, CFG.leadDays.sprayToAssembly);
+      updateFrameHint();
+    };
+    document.getElementById('editNotes').value = job.notes || '';
+    document.getElementById('editLocked').checked = !!job.weekLocked;
+    // Gates: SKP/LYT for bespoke, sedum for green roofs (untick here to undo)
+    var hasGreenRoof = !!(job.extras && job.extras.greenRoof);
+    document.getElementById('editGatesRow').style.display = (job.needsDrawings || hasGreenRoof) ? '' : 'none';
+    document.getElementById('editSkpWrap').style.display = job.needsDrawings ? '' : 'none';
+    document.getElementById('editLytWrap').style.display = job.needsDrawings ? '' : 'none';
+    document.getElementById('editSedumWrap').style.display = hasGreenRoof ? '' : 'none';
+    document.getElementById('editSkp').checked = !!job.skpDone;
+    document.getElementById('editLyt').checked = !!job.lytDone;
+    document.getElementById('editSedum').checked = !!job.sedumOrdered;
+    document.getElementById('editModal').classList.add('show');
+  }
+
+  function updateFrameHint() {
+    var spray = document.getElementById('editSpray').value;
+    document.getElementById('editFrameHint').textContent = spray
+      ? '🪚 Cutting/framing should start by ' +
+        App.fmtDateFull(App.addWorkingDaysIso(spray, -CFG.leadDays.frameToSpray)) +
+        ' (' + CFG.leadDays.frameToSpray + ' working days before spray)'
+      : '';
+  }
+  function closeEditModal() {
+    document.getElementById('editModal').classList.remove('show');
+    editingId = null;
+  }
+  function saveEditModal() {
+    if (!editingId) return;
+    var job = jobById(editingId);
+    if (!job) return;
+
+    // Hours in the UI → days in storage (see openEditModal)
+    var hrsPerDay = CFG.productiveHrsPerDay || 6.5;
+    var bhVal = document.getElementById('editBuildHours').value.trim();
+    var bd = bhVal !== '' ? Math.round((parseFloat(bhVal) / hrsPerDay) * 10000) / 10000 : null;
+    var spray = document.getElementById('editSpray').value;
+    var asm = document.getElementById('editAsm').value;
+    var notes = document.getElementById('editNotes').value;
+    var locked = document.getElementById('editLocked').checked;
+
+    if (spray && spray !== job.plannedSprayDate && !checkSprayDateAgainstDispatch(job, spray)) {
+      return;   // user backed out at the warning — modal stays open to fix it
+    }
+
+    job.overrideBuildDays = bd;
+    // Clearing the override falls back to HubSpot estimate, then standard
+    job.buildDays = bd !== null ? bd
+      : job.estBuildHours ? job.estBuildHours / hrsPerDay
+      : job.standardBuildDays;
+    job.plannedSprayDate = spray;
+    job.plannedAssemblyDate = asm;
+    job.notes = notes;
+    job.weekLocked = locked;
+
+    var alloc = {
+      override_build_days: bd !== null ? bd : null,
+      planned_spray_date: spray || null,
+      planned_assembly_date: asm || null,
+      notes: notes || null,
+      week_locked: locked ? 'TRUE' : 'FALSE'
+    };
+    if (job.needsDrawings) {
+      var skp = document.getElementById('editSkp').checked;
+      var lyt = document.getElementById('editLyt').checked;
+      alloc.skp_done = skp ? 'TRUE' : null;
+      alloc.skp_done_date = skp ? (job.skpDoneDate || App.todayStr()) : null;
+      alloc.lyt_done = lyt ? 'TRUE' : null;
+      alloc.lyt_done_date = lyt ? (job.lytDoneDate || App.todayStr()) : null;
+      job.skpDone = skp; job.lytDone = lyt;
+    }
+    if (job.extras && job.extras.greenRoof) {
+      var sed = document.getElementById('editSedum').checked;
+      alloc.sedum_ordered = sed ? 'TRUE' : null;
+      job.sedumOrdered = sed;
+    }
+    // Keep the week bucket in step with a manually set spray date
+    if (spray && App.isoWeekOfIso(spray) !== job.plannedWeek) {
+      job.plannedWeek = App.isoWeekOfIso(spray);
+      alloc.planned_week = job.plannedWeek;
+    }
+
+    App.run('saveAllocation', [editingId, alloc], {});
+
+    closeEditModal();
+    render();
+  }
+
+  // ── Week navigation ────────────────────────────────────────
+  function shiftWeeks(delta) { weekOffset += delta; render(); }
+  function jumpToToday() { weekOffset = 0; render(); }
+
+  // ── Capacity helpers ───────────────────────────────────────
+  function calcLeaveForWeek(weekDays) {
+    var days = 0;
+    weekDays.forEach(function (d) {
+      var ds = App.isoDateStr(d);
+      leaveData.forEach(function (l) {
+        if (l.startDate <= ds && l.endDate >= ds) {
+          if (l.startDate === ds && l.startType === 'Afternoon') days += 0.5;
+          else if (l.endDate === ds && l.endType === 'Morning') days += 0.5;
+          else days += 1.0;
+        }
+      });
+    });
+    return days;
+  }
+  function getLeaveesForWeek(weekDays) {
+    var names = {};
+    weekDays.forEach(function (d) {
+      var ds = App.isoDateStr(d);
+      leaveData.forEach(function (l) {
+        if (l.startDate <= ds && l.endDate >= ds) names[l.name] = true;
+      });
+    });
+    return Object.keys(names);
+  }
+  function calcSprayBatches(jobs) {
+    var byFinish = {};
+    jobs.forEach(function (j) {
+      var f = (j.finish || 'Unknown').toLowerCase();
+      byFinish[f] = (byFinish[f] || 0) + 1;
+    });
+    return Object.keys(byFinish).map(function (f) {
+      return { finish: f, count: byFinish[f] };
+    }).sort(function (a, b) { return b.count - a.count; });
+  }
+
+  function stripHtml(s) {
+    // Strip tags, then decode entities (&amp; → &) — HubSpot rich text
+    var txt = String(s || '').replace(/<[^>]*>/g, ' ');
+    var ta = document.createElement('textarea');
+    ta.innerHTML = txt;
+    return ta.value.replace(/\s+/g, ' ').trim();
+  }
+
+  function finishClass(finish) {
+    if (!finish) return 'fc-other';
+    var f = finish.toLowerCase();
+    var keys = Object.keys(FINISH_CLASSES);
+    for (var i = 0; i < keys.length; i++) {
+      if (f.indexOf(keys[i]) > -1) return FINISH_CLASSES[keys[i]];
+    }
+    return 'fc-other';
+  }
+
+  function jobById(id) {
+    for (var i = 0; i < allJobs.length; i++) if (allJobs[i].id === id) return allJobs[i];
+    return null;
+  }
+
+  // ── Event delegation ───────────────────────────────────────
+  // Board/sidebar HTML carries data labels instead of inline handler
+  // strings; these listeners route everything to the same functions as
+  // before. data-drop = drop target ('unscheduled' | week | week|day);
+  // data-card-id = draggable job card; data-act = click actions.
+  document.addEventListener('click', function (e) {
+    var el = e.target.closest('[data-act]');
+    if (!el) return;
+    var d = el.dataset;
+    switch (d.act) {
+      case 'edit':        openEditModal(d.id); return;
+      case 'tick-gate':   tickGate(d.id, d.field); return;
+      // The Plan-sprays button sits inside the week header (data-act
+      // "day-panel"); closest() resolving the button first is what
+      // replaces the old inline stopPropagation.
+      case 'plan-sprays': planSprays(parseInt(d.weekIdx, 10)); return;
+      case 'day-panel':   openDayPanel(parseInt(d.weekIdx, 10)); return;
+      case 'spray-panel': toggleSprayPanel(d.week); return;
+    }
+  });
+  document.addEventListener('dblclick', function (e) {
+    var el = e.target.closest('[data-card-id]');
+    if (el) openEditModal(el.dataset.cardId);
+  });
+  document.addEventListener('dragstart', function (e) {
+    var el = e.target.closest('[data-card-id]');
+    if (el) onDragStart(e, el.dataset.cardId);
+  });
+  document.addEventListener('dragend', onDragEnd);
+  document.addEventListener('dragover', function (e) {
+    var el = e.target.closest('[data-drop]');
+    if (el) onDragOver(e, el.dataset.drop);
+  });
+  document.addEventListener('drop', function (e) {
+    var el = e.target.closest('[data-drop]');
+    if (el) onDrop(e, el.dataset.drop);
+  });
+  document.addEventListener('dragleave', function (e) {
+    var el = e.target.closest('[data-drop]');
+    if (el) onDragLeave({ currentTarget: el });   // onDragLeave reads currentTarget
+  });
+  // Safety net: mouse events are suppressed during a native drag, so a
+  // mousedown arriving while dragId is set means the dragend that should
+  // have cleared it was lost — reset, or the auto-refresh stays blocked.
+  document.addEventListener('mousedown', function () { if (dragId) onDragEnd(); });
+</script>
+</body>
+</html>

@@ -1,0 +1,135 @@
+<!-- Styles for Installer.html — mobile-first (installers use phones on
+     site). Pulled in via the view's InstallerStyles include. NEVER write
+     the include scriptlet syntax literally in this file (even in a
+     comment) — Apps Script evaluates scriptlets inside comments. -->
+<style>
+    body { min-width: 0; }
+
+    .week-bar {
+      display: flex; align-items: center; gap: 6px;
+      padding: 8px 10px; background: #fff; border-bottom: 1px solid #ddd;
+    }
+    .wk-nav { border-color: #ccc; color: #444; flex-shrink: 0; }
+    .day-strip { flex: 1; display: flex; gap: 4px; overflow-x: auto; }
+    .day-cell {
+      flex: 1; min-width: 44px; text-align: center; border: 1px solid #e0e0e0;
+      border-radius: 8px; padding: 4px 2px; cursor: pointer; background: #fafafa;
+    }
+    .day-cell.has-jobs { background: #eef6ec; border-color: #bcd9b0; }
+    .day-cell.today { border-color: #2d5a27; }
+    .day-cell.sel { background: #2d5a27; border-color: #2d5a27; color: #fff; }
+    .day-cell.sel .dc-count { color: #d7e8d2; }
+    .dc-dow { font-size: 10px; font-weight: 700; text-transform: uppercase; }
+    .dc-date { font-size: 16px; font-weight: 700; }
+    .dc-count { font-size: 10px; color: #777; }
+
+    .filter-bar {
+      display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+      padding: 6px 12px; background: #fff; border-bottom: 1px solid #eee;
+    }
+    .team-chip {
+      border: 1px solid #ccc; border-radius: 14px; padding: 5px 13px;
+      font-size: 13px; font-weight: 700; background: #fff; color: #555; cursor: pointer;
+    }
+    .team-chip.active { background: #2d5a27; border-color: #2d5a27; color: #fff; }
+    .legend { display: flex; gap: 6px; flex-wrap: wrap; }
+    .lg { font-size: 10px; font-weight: 700; border-radius: 3px; padding: 1px 6px; }
+    .lg-install { background: #e2eedd; color: #2d5a27; }
+    .lg-team    { background: #d9ebfb; color: #0d47a1; }
+    .lg-andy    { background: #d5f0ec; color: #00695c; }
+    .lg-courier { background: #ffeecb; color: #8a5e00; }
+    .lg-visit   { background: #ede7f6; color: #4527a0; }
+
+    /* Bank holidays in the day strip */
+    .day-cell.bankhol {
+      background: repeating-linear-gradient(45deg, #fdf6e7, #fdf6e7 6px, #f6ecd6 6px, #f6ecd6 12px);
+      border-color: #dbc48f;
+    }
+    .day-cell.bankhol.sel { background: #9c6f00; border-color: #9c6f00; color: #fff; }
+    .hol-tag {
+      font-size: 11px; font-weight: 700; color: #9c6f00; background: #fff3cd;
+      border-radius: 3px; padding: 0 6px;
+    }
+
+    .inst-main { padding: 12px; max-width: 700px; margin: 0 auto; }
+    .sub-hdr { font-size: 13px; font-weight: 700; color: #666; margin: 16px 0 8px; }
+    .day-title { font-size: 16px; font-weight: 700; margin-bottom: 8px; }
+    .inst-empty { padding: 30px 10px; text-align: center; color: #999; }
+
+    .route-card {
+      background: #f4f6f4; border-radius: 9px; padding: 10px 12px;
+      font-size: 13px; line-height: 1.8; margin-bottom: 12px;
+    }
+    .route-leg { color: #888; font-size: 11px; }
+
+    .inst-card {
+      background: #fff; border: 1px solid #e0e0e0; border-left: 5px solid #2d5a27;
+      border-radius: 10px; padding: 12px; margin-bottom: 12px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+    }
+    /* Card colour = job type (matches the dispatch board's language) */
+    .inst-card.it-install    { border-left-color: #2d5a27; }
+    .inst-card.it-team       { border-left-color: #1565c0; background: #f4f9fe; }
+    .inst-card.it-andy       { border-left-color: #00897b; background: #f0faf8; }
+    .inst-card.it-courier    { border-left-color: #e6a817; background: #fffaf0; }
+    .inst-card.it-collection { border-left-color: #78909c; background: #f6f7f8; }
+    .inst-card.it-visit {
+      border: 1px dashed #b39ddb; border-left: 5px solid #6a3fc4; background: #faf9ff;
+    }
+    .inst-card.it-survey { border-left-color: #0288d1; }
+    .amend-pill {
+      font-size: 10px; font-weight: 700; border-radius: 3px; padding: 2px 7px;
+      background: #ede7f6; color: #4527a0;
+    }
+    .it-dim { background: #e0e0e0 !important; color: #777 !important; }
+    .ord-btns { display: inline-flex; gap: 4px; }
+    .ord-btn {
+      border: 1px solid #ccc; background: #fff; border-radius: 6px;
+      width: 34px; height: 30px; font-size: 13px; cursor: pointer; color: #444;
+    }
+    .ord-btn:disabled { opacity: 0.3; }
+    .ord-btn:active { background: #eaf4e8; }
+    .ic-hdr { display: flex; align-items: center; gap: 8px; }
+    .ic-order {
+      background: #2d5a27; color: #fff; border-radius: 50%; width: 24px; height: 24px;
+      display: inline-flex; align-items: center; justify-content: center;
+      font-weight: 700; font-size: 13px; flex-shrink: 0;
+    }
+    .ic-name { font-weight: 700; font-size: 15px; flex: 1; min-width: 0; }
+    .ic-sub { color: #777; font-size: 13px; margin: 3px 0 8px 32px; }
+    .ic-row { font-size: 14px; margin: 6px 0; line-height: 1.7; }
+    .ic-site {
+      background: #fdf8e3; border: 1px solid #eadfae; border-radius: 7px;
+      font-size: 13px; padding: 8px 10px; margin: 8px 0; line-height: 1.6;
+    }
+    .ic-btn {
+      display: inline-block; border: 1px solid #2d5a27; color: #2d5a27;
+      background: #fff; border-radius: 6px; padding: 3px 10px; font-size: 13px;
+      font-weight: 700; text-decoration: none; cursor: pointer; margin: 2px 0;
+    }
+    .ic-btn:active { background: #eaf4e8; }
+    .ic-actions { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+    .ic-btn.big { padding: 11px 12px; text-align: center; font-size: 15px; }
+    .ic-btn.due { background: #2d5a27; color: #fff; border: none; }
+    .ic-btn.done { border-color: #bcd9b0; color: #2d5a27; background: #eef6ec; }
+    .ic-nofolder { font-size: 12px; color: #b71c1c; text-align: center; }
+    .ic-rework {
+      margin-top: 8px; background: #fce4e4; color: #b71c1c; font-size: 13px;
+      font-weight: 600; border-radius: 7px; padding: 7px 10px;
+    }
+
+    /* Report modal */
+    .form-row2 { display: flex; gap: 10px; margin-bottom: 10px; }
+    .form-row2 > div { flex: 1; }
+    .form-row2 label, .form-col > label { display: block; font-size: 12px; font-weight: 700; color: #555; margin-bottom: 3px; }
+    .form-row2 input { width: 100%; border: 1px solid #ccc; border-radius: 7px; padding: 9px; font-size: 15px; }
+    .form-col { margin-bottom: 10px; }
+    .form-col textarea {
+      width: 100%; border: 1px solid #ccc; border-radius: 7px; padding: 9px;
+      font-size: 15px; min-height: 60px; font-family: inherit; margin-top: 5px;
+    }
+    .qc4-row { display: flex; gap: 14px; }
+    .qc4-opt { display: flex; align-items: center; gap: 6px; font-size: 15px; font-weight: 600; }
+    .qc4-opt input { width: 18px; height: 18px; }
+    .rework-box { background: #fff7e8; border: 1px solid #eadfae; border-radius: 8px; padding: 9px 10px; }
+</style>

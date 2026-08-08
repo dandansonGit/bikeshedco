@@ -1,0 +1,967 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>BSC — Production Tracker</title>
+  <script>window.APP_BASE_URL = <?!= JSON.stringify(ScriptApp.getService().getUrl()) ?>;</script>
+  <?!= include('Shared'); ?>
+  <?!= include('TrackerStyles'); ?>
+</head>
+<body>
+
+<div class="header">
+  <h1>Production Tracker</h1>
+  <div class="header-sep"></div>
+  <div class="header-meta" id="hdrMeta">Loading…</div>
+  <div id="viewNav"></div>
+  <button class="hbtn" onclick="openHelp()" title="What do the colours and buttons mean?">?</button>
+  <button class="hbtn" id="btnRefresh" onclick="doRefresh()">⟳ Refresh</button>
+</div>
+
+<div class="search-wrap">
+  <div class="search-row">
+    <input class="search-input" id="searchInput" type="search"
+      placeholder="Search jobs, shed type, colour, drawing no…" oninput="onSearchInput()" autocomplete="off">
+    <button class="btn-clear-search" id="btnClearSearch" onclick="clearSearch()" style="display:none">× Clear</button>
+  </div>
+  <div class="filter-chips">
+    <select class="filter-select" id="filterColour" onchange="onFilterChange()">
+      <option value="">All colours</option>
+    </select>
+    <select class="filter-select" id="filterType" onchange="onFilterChange()">
+      <option value="">All types</option>
+    </select>
+    <button class="chip-toggle" id="ftInProgress" onclick="toggleFilter('inProgress')">In progress</button>
+    <button class="chip-toggle" id="ftOverdue"    onclick="toggleFilter('overdue')">Overdue</button>
+    <button class="chip-toggle" id="ftHasExtras"  onclick="toggleFilter('hasExtras')">Has extras</button>
+    <span class="search-count" id="searchCount"></span>
+  </div>
+</div>
+
+<div class="banner" id="banner"></div>
+
+<div class="main" id="main">
+  <div class="loading-wrap">
+    <div class="spinner"></div>
+    <div>Loading jobs from HubSpot…</div>
+  </div>
+</div>
+
+<div class="modal-bg" id="faultModal">
+  <div class="modal-box">
+    <div class="modal-title" id="faultModalTitle">Record faults</div>
+    <div class="modal-sub">Any faults to record? (optional)</div>
+    <div id="faultCats" style="display:flex;flex-wrap:wrap;gap:6px 14px;margin:4px 0 10px"></div>
+    <textarea id="faultText" placeholder="Describe faults found…" rows="4" style="width:100%;border:1px solid #ccc;border-radius:7px;padding:9px;font-size:15px;min-height:90px;font-family:inherit"></textarea>
+    <div class="modal-btns">
+      <button class="btn-danger" id="faultClearBtn" onclick="clearFaults()" style="margin-right:auto">Clear faults</button>
+      <button class="btn-sec" onclick="closeFaultModal(false)">Cancel</button>
+      <button class="btn-pri" onclick="closeFaultModal(true)">Save</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-bg" id="workerModal">
+  <div class="modal-box" style="max-width:420px">
+    <div class="modal-title">Who did this?</div>
+    <div class="worker-grid" id="workerGrid"></div>
+    <div class="modal-btns">
+      <button class="btn-sec" onclick="chooseWorker('')">Skip</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-bg" id="helpModal">
+  <div class="modal-box" style="max-width:460px">
+    <div class="modal-title">How the tracker works</div>
+    <div style="font-size:14px;line-height:1.6">
+      <div style="margin-bottom:8px"><strong>Tap a job row</strong> to open it. Tap stage buttons in order to mark them done — green = done, blue = dispatched. Tapping a done stage again un-does it (you'll be asked to confirm).</div>
+      <div style="margin-bottom:8px"><strong>QC stages</strong> ask for faults when completed — Cancel just closes; Save records the text; Clear faults removes it.</div>
+      <div style="margin-bottom:8px"><strong>Date badge</strong> = install date: red = overdue, amber = within 2 weeks. <strong>⏸ ON HOLD</strong> = sales parked the shed in HubSpot (Dispatch status "On hold"); it sits in its own section until the hold is lifted.</div>
+      <div style="margin-bottom:8px"><strong>Notes and dates save automatically</strong> — watch for "✓ Saved" at the bottom of the job.</div>
+      <div><strong>Odd Jobs</strong> (right column) are batch tasks — ply prep, lid frames, base frames — ticked off per shed, separate from the build stages.</div>
+    </div>
+    <div class="modal-btns"><button class="btn-pri" onclick="closeHelp()">Got it</button></div>
+  </div>
+</div>
+
+<script>
+  // ── State ──────────────────────────────────────────────────
+  var allJobs   = [];
+  var stateMap  = {};        // shedId → state row
+  var cacheTs   = null;
+  var CFG       = { stages: [], oddJobs: [] };
+  var pendingFault  = null;
+  var expandedCards = {};
+  var sectionStates = { upcoming: true, overdue: false, nodate: false, oddjobs: false };
+  var searchQuery   = '';
+  var activeFilters = { colour: '', shedType: '', inProgress: false, overdue: false, hasExtras: false };
+
+  var EXTRAS_MAP = {
+    securityPack: 'Security Pack', biFolds: 'Bi-folds', greenRoof: 'Green Roof',
+    joiningPanel: 'Joining Panel', storageHooks: 'Hooks', endShelves: 'End Shelves',
+    recyclingShelf: 'Recycling Shelf', steadyracks: 'Steadyracks',
+    additionalStorage: 'Additional Storage'
+  };
+
+  var esc = App.esc;
+
+  // ── Boot ───────────────────────────────────────────────────
+  window.addEventListener('load', function () {
+    document.getElementById('viewNav').innerHTML = App.viewNav('tracker');
+    loadData(false);
+  });
+
+  function loadData(force) {
+    App.run('getTrackerData', [force], {
+      ok: function (result) {
+        allJobs = result.jobs || [];
+        cacheTs = result.timestamp;
+        CFG     = result.config || CFG;
+        stateMap = {};
+        (result.state || []).forEach(function (r) { stateMap[r.shed_id] = r; });
+        App.hideBanner();
+        updateMeta();
+        populateFilterDropdowns();
+        render();
+      },
+      err: function (e) {
+        App.showBanner('error', '⚠ Could not load jobs: ' + e.message,
+          '<span class="retry-link" onclick="doRefresh()">Try again</span>');
+        document.getElementById('main').innerHTML = '<div class="section-empty">Error loading data</div>';
+      }
+    });
+  }
+
+  function doRefresh() {
+    var btn = document.getElementById('btnRefresh');
+    btn.disabled = true;
+    btn.textContent = '⟳ Refreshing…';
+    App.run('invalidateLiveCache', [], {
+      ok: function () {
+        loadData(true);
+        btn.disabled = false;
+        btn.textContent = '⟳ Refresh';
+      },
+      err: function (e) {
+        btn.disabled = false;
+        btn.textContent = '⟳ Refresh';
+        App.showBanner('error', 'Refresh failed: ' + e.message);
+      }
+    });
+  }
+
+  function updateMeta() {
+    var el = document.getElementById('hdrMeta');
+    el.textContent = (cacheTs ? 'Updated ' + App.fmtTime(new Date(cacheTs)) + '  ·  ' : '') +
+      allJobs.length + ' sheds';
+  }
+
+  // ── Search & filter ────────────────────────────────────────
+  function anyFilterActive() {
+    return !!(searchQuery || activeFilters.colour || activeFilters.shedType ||
+      activeFilters.inProgress || activeFilters.overdue || activeFilters.hasExtras);
+  }
+  function onSearchInput() {
+    searchQuery = document.getElementById('searchInput').value.trim().toLowerCase();
+    updateClearBtn();
+    render();
+  }
+  function onFilterChange() {
+    activeFilters.colour   = document.getElementById('filterColour').value;
+    activeFilters.shedType = document.getElementById('filterType').value;
+    updateClearBtn();
+    render();
+  }
+  function toggleFilter(key) {
+    activeFilters[key] = !activeFilters[key];
+    document.getElementById('ft' + key.charAt(0).toUpperCase() + key.slice(1))
+      .classList.toggle('active', activeFilters[key]);
+    updateClearBtn();
+    render();
+  }
+  function clearSearch() {
+    searchQuery = '';
+    activeFilters = { colour: '', shedType: '', inProgress: false, overdue: false, hasExtras: false };
+    document.getElementById('searchInput').value = '';
+    document.getElementById('filterColour').value = '';
+    document.getElementById('filterType').value = '';
+    ['ftInProgress','ftOverdue','ftHasExtras'].forEach(function (id) {
+      document.getElementById(id).classList.remove('active');
+    });
+    updateClearBtn();
+    render();
+  }
+  function updateClearBtn() {
+    document.getElementById('btnClearSearch').style.display = anyFilterActive() ? '' : 'none';
+  }
+
+  function filterJobs(jobs) {
+    var today = App.todayStr();
+    return jobs.filter(function (j) {
+      if (searchQuery) {
+        var hay = [j.jobRef, j.shedType, j.shedTypeCustomer, j.finish, j.drawingNo, j.shedDealNumber]
+          .join(' ').toLowerCase();
+        if (hay.indexOf(searchQuery) === -1) return false;
+      }
+      if (activeFilters.colour && j.finish !== activeFilters.colour) return false;
+      if (activeFilters.shedType && j.shedType !== activeFilters.shedType) return false;
+      if (activeFilters.inProgress) {
+        var st = stateMap[j.id] || {};
+        var anyDone = CFG.stages.some(function (s) { return stageComplete(st, s.key); });
+        if (!anyDone || stageComplete(st, 'dispatched')) return false;
+      }
+      if (activeFilters.overdue) {
+        if (!j.planningDate || j.planningDate >= today) return false;
+        if (stageComplete(stateMap[j.id] || {}, 'dispatched')) return false;
+      }
+      if (activeFilters.hasExtras) {
+        var ex = j.extras || {};
+        if (!Object.keys(EXTRAS_MAP).some(function (k) { return ex[k]; })) return false;
+      }
+      return true;
+    });
+  }
+
+  function populateFilterDropdowns() {
+    var colours = {}, types = {};
+    allJobs.forEach(function (j) {
+      if (j.finish)   colours[j.finish] = true;
+      if (j.shedType) types[j.shedType] = true;
+    });
+    var colSel = document.getElementById('filterColour');
+    var typeSel = document.getElementById('filterType');
+    var curCol = colSel.value, curType = typeSel.value;
+    colSel.innerHTML  = '<option value="">All colours</option>' +
+      Object.keys(colours).sort().map(function (c) { return '<option value="' + esc(c) + '">' + esc(c) + '</option>'; }).join('');
+    typeSel.innerHTML = '<option value="">All types</option>' +
+      Object.keys(types).sort().map(function (t) { return '<option value="' + esc(t) + '">' + esc(t) + '</option>'; }).join('');
+    colSel.value = curCol;
+    typeSel.value = curType;
+  }
+
+  // ── Render ─────────────────────────────────────────────────
+  function render() {
+    var today = App.todayStr();
+    var filtered = filterJobs(allJobs);
+    var upcoming = [], overdue = [], noDate = [], onHold = [];
+
+    document.getElementById('searchCount').textContent =
+      anyFilterActive() ? filtered.length + ' of ' + allJobs.length + ' jobs' : '';
+
+    filtered.forEach(function (j) {
+      if (stageComplete(stateMap[j.id] || {}, 'dispatched')) return;
+      if (j.onHold)                    onHold.push(j);
+      else if (!j.planningDate)        noDate.push(j);
+      else if (j.planningDate < today) overdue.push(j);
+      else                             upcoming.push(j);
+    });
+    upcoming.sort(function (a, b) { return a.planningDate.localeCompare(b.planningDate); });
+    overdue.sort(function (a, b)  { return a.planningDate.localeCompare(b.planningDate); });
+
+    var left  = buildSection('Upcoming', upcoming, today, 'upcoming', false);
+    var right = buildSection('Overdue',  overdue,  today, 'overdue',  true) +
+                buildSection('No Date',  noDate,   today, 'nodate',   false) +
+                buildSection('On Hold',  onHold,   today, 'onhold',   false) +
+                buildOddJobsSection(allJobs) +
+                buildArchiveShell();
+
+    document.getElementById('main').innerHTML =
+      '<div class="main-grid"><div class="col-left">' + left +
+      '</div><div class="col-right">' + right + '</div></div>';
+
+    // Restore section open/closed state (clicks are handled by the
+    // delegated listener at the bottom of this script — no per-render wiring)
+    document.querySelectorAll('.section-hdr').forEach(function (el) {
+      var sid = el.dataset.sec;
+      var body = document.getElementById('sb-' + sid);
+      if (sectionStates[sid]) { el.classList.add('open'); if (body) body.classList.add('open'); }
+    });
+
+    // Restore expanded cards
+    Object.keys(expandedCards).forEach(function (id) {
+      if (expandedCards[id]) {
+        var el = document.getElementById('exp-' + id);
+        if (el) el.classList.add('open');
+      }
+    });
+  }
+
+  function buildSection(title, jobs, today, sid, isOverdue) {
+    var countCls = 'section-count' + (isOverdue && jobs.length ? ' red-count' : '');
+    var inner = jobs.length
+      ? jobs.map(function (j) { return buildCard(j, today); }).join('')
+      : '<div class="section-empty">No jobs in this section</div>';
+    return '<div class="section">' +
+      '<div class="section-hdr" data-sec="' + sid + '">' +
+        '<span class="section-chevron">&#9658;</span>' +
+        '<span class="section-title">' + esc(title) + '</span>' +
+        '<span class="' + countCls + '">' + jobs.length + '</span>' +
+      '</div>' +
+      '<div class="section-body" id="sb-' + sid + '">' + inner + '</div>' +
+    '</div>';
+  }
+
+  function buildCard(job, today) {
+    var state = stateMap[job.id] || {};
+
+    var dCls = 'date-badge tracker-date', dLabel;
+    if (job.onHold) { dLabel = '⏸ ON HOLD'; dCls += ' hold'; }
+    else if (!job.planningDate) { dLabel = 'No date'; dCls += ' nodate'; }
+    else {
+      dLabel = App.fmtDateFull(job.planningDate);
+      if (job.planningDate < today) dCls += ' red';
+      else if (App.daysBetween(today, job.planningDate) <= 14) dCls += ' amber';
+    }
+
+    var dots = CFG.stages.map(function (s) {
+      var done = stageComplete(state, s.key);
+      var cls = done ? (s.key === 'dispatched' ? 'dot disp' : 'dot done') : 'dot';
+      return '<span class="' + cls + '" title="' + esc(s.label) + '"></span>';
+    }).join('');
+
+    var chips = '';
+    Object.keys(EXTRAS_MAP).forEach(function (k) {
+      if (job.extras && job.extras[k]) chips += '<span class="chip">' + esc(EXTRAS_MAP[k]) + '</span>';
+    });
+    if (job.extras && job.extras.additionalNotes) chips += '<span class="chip chip-note">+ Notes</span>';
+    if (isBespokeType(job.shedType) && (state.skp_done !== 'TRUE' || state.lyt_done !== 'TRUE')) {
+      chips += '<span class="chip chip-drawings" title="Drawings incomplete — Dan ticks SKP/LYT in the Scheduler. Don\'t start the build yet.">📐 Drawings</span>';
+    }
+    if (stageComplete(state, 'assembled') && state.lid_complete !== 'TRUE' && !stageComplete(state, 'dispatched')) {
+      chips += '<span class="chip chip-lid" title="Assembled but the lid station hasn\'t finished this lid — must be complete before dispatch">⚠ Lid outstanding</span>';
+    }
+
+    var sub = '';
+    if (job.shedTypeCustomer && job.shedTypeCustomer !== job.shedType) {
+      sub = esc(job.shedType) + ' — ' + esc(job.shedTypeCustomer);
+    } else if (job.shedType) sub = esc(job.shedType);
+    if (job.finish) sub += (sub ? ' · ' : '') + esc(job.finish);
+
+    var multiHtml = job.multipleNumber
+      ? '<span class="multi-badge">Shed ' + esc(job.multipleNumber) + '</span>' : '';
+    var displayRef = esc(job.jobRef || job.shedDealNumber || ('Shed ' + job.id));
+
+    return '<div class="job-card" id="card-' + esc(job.id) + '">' +
+      '<div class="job-row" data-act="toggle-card" data-id="' + esc(job.id) + '">' +
+        '<span class="' + dCls + '">' + dLabel + '</span>' +
+        buildDispatchBadge(job.dispatchType) +
+        '<div class="job-info">' +
+          '<div class="job-ref">' + displayRef + multiHtml + '</div>' +
+          (sub ? '<div class="job-sub">' + sub + '</div>' : '') +
+        '</div>' +
+        '<div class="prog-dots" id="dots-' + esc(job.id) + '">' + dots + '</div>' +
+        (chips ? '<div class="extras">' + chips + '</div>' : '') +
+      '</div>' +
+      '<div class="job-expand" id="exp-' + esc(job.id) + '">' + buildExpand(job, state) + '</div>' +
+    '</div>';
+  }
+
+  function buildDispatchBadge(type) {
+    if (!type) return '';
+    var t = type.toLowerCase(), cls = 'dispatch-badge ', lbl = type;
+    if      (t === 'install')              { cls += 'db-install';    lbl = 'Install'; }
+    else if (t.indexOf('team') > -1)       { cls += 'db-team';       lbl = 'Del (Team)'; }
+    else if (t.indexOf('andy') > -1)       { cls += 'db-andy';       lbl = 'Del (Andy)'; }
+    else if (t.indexOf('courier') > -1)    { cls += 'db-courier';    lbl = 'Courier'; }
+    else if (t.indexOf('collection') > -1) { cls += 'db-collection'; lbl = 'Collection'; }
+    else                                   { cls += 'db-other'; }
+    return '<span class="' + cls + '">' + esc(lbl) + '</span>';
+  }
+
+  function buildExpand(job, state) {
+    var id = job.id, html = '';
+
+    html += '<div class="stages-label">Production stages</div><div class="stages-grid">';
+    CFG.stages.forEach(function (s, i) {
+      var done = stageComplete(state, s.key);
+      var dateV = state['stage_' + s.key + '_date'];
+      var btnCls = 'stage-btn' + (done ? ' done' + (s.key === 'dispatched' ? ' disp-done' : '') : '');
+      html += '<div class="' + btnCls + '" id="stg-' + esc(id) + '-' + s.key + '" ' +
+        'data-act="stage" data-id="' + esc(id) + '" data-key="' + esc(s.key) + '" data-idx="' + i + '">' +
+          '<span class="s-tick">' + (done ? '&#10003;' : '') + '</span>' +
+          '<span class="s-label">' + esc(s.label) + '</span>' +
+          '<span class="s-date">' + esc(done && dateV ? App.fmtDateTime(dateV) : '') + '</span>' +
+        '</div>';
+    });
+    html += '</div>';
+
+    // Lid station: a full workstation equal to panel framing (Dan,
+    // 2026-07-16) — one checkpoint, parallel to the stage track. Often
+    // built during assembly, so Assembled/Dispatched WARN, never block.
+    var lidDone = state.lid_complete === 'TRUE';
+    html += '<div class="stages-label" style="margin-top:8px">Lid station</div>' +
+      '<div class="stages-grid">' +
+        '<div class="stage-btn lid-btn' + (lidDone ? ' done' : '') + '" id="lid-' + esc(id) + '" ' +
+          'data-act="lid" data-id="' + esc(id) + '">' +
+          '<span class="s-tick">' + (lidDone ? '&#10003;' : '') + '</span>' +
+          '<span class="s-label">Lid Complete</span>' +
+          '<span class="s-date">' + esc(lidDone && state.lid_complete_date ? App.fmtDateTime(state.lid_complete_date) : '') + '</span>' +
+        '</div>' +
+      '</div>';
+
+    html += faultRowsHtml(id, state);
+
+    html += '<div class="dates-row">' +
+      '<div class="date-field"><label>Planned Spray Date</label>' +
+        '<input type="date" value="' + esc(state.planned_spray_date || '') + '" ' +
+        'data-date-field="planned_spray_date" data-id="' + esc(id) + '"></div>' +
+      '<div class="date-field"><label>Planned Assembly Date</label>' +
+        '<input type="date" value="' + esc(state.planned_assembly_date || '') + '" ' +
+        'data-date-field="planned_assembly_date" data-id="' + esc(id) + '"></div>' +
+    '</div>';
+
+    html += '<div class="notes-section"><label>Notes</label>' +
+      '<textarea id="ntx-' + esc(id) + '" data-notes-id="' + esc(id) + '">' +
+      esc(state.notes || '') + '</textarea></div>';
+
+    html += '<div class="details-panel"><div class="details-grid">';
+    if (job.drawingNo)      html += detailItem('Drawing No.', job.drawingNo);
+    if (job.shedDealNumber) html += detailItem('Job No.', job.shedDealNumber);
+    if (job.perShedValue)   html += detailItem('Per-shed value', fmtGBP(job.perShedValue));
+    if (job.shedValue)      html += detailItem('Shed value', fmtGBP(job.shedValue));
+    html += '</div>';
+
+    var extrasList = [];
+    Object.keys(EXTRAS_MAP).forEach(function (k) {
+      if (job.extras && job.extras[k]) extrasList.push(EXTRAS_MAP[k]);
+    });
+    if (extrasList.length || (job.extras && job.extras.additionalNotes)) {
+      html += '<div class="detail-extras">';
+      if (extrasList.length) html += '<strong>Extras:</strong> ' + esc(extrasList.join(', '));
+      if (job.extras && job.extras.additionalNotes) {
+        html += (extrasList.length ? '<br>' : '') +
+          '<strong>Additional requirements:</strong> ' + esc(stripHtml(job.extras.additionalNotes));
+      }
+      html += '</div>';
+    }
+    html += '</div>';
+
+    html += '<div class="save-status" id="ss-' + esc(id) + '"></div>';
+    return html;
+  }
+
+  function faultRowsHtml(id, state) {
+    var html = '';
+    CFG.stages.filter(function (s) { return s.hasFaults; }).forEach(function (s) {
+      var faults = state['stage_' + s.key + '_faults'];
+      if (faults) {
+        html += '<div class="faults-row">' +
+          '<span class="faults-text">' + esc(s.key.toUpperCase()) + ': ' + esc(faults) + '</span>' +
+          '<span class="faults-edit" data-act="edit-faults" data-id="' + esc(id) + '" data-key="' + esc(s.key) + '">edit</span>' +
+        '</div>';
+      }
+    });
+    return html;
+  }
+
+  // ── Archive (dispatched jobs keep their history) ───────────
+  var archiveRows = null;    // null = not loaded yet (lazy on first open)
+  var archiveQuery = '';
+
+  function buildArchiveShell() {
+    return '<div class="section">' +
+      '<div class="section-hdr" data-sec="archive">' +
+        '<span class="section-chevron">&#9658;</span>' +
+        '<span class="section-title">Archive (dispatched)</span>' +
+        '<span class="section-count" id="archCount">' + (archiveRows ? archiveRows.length : '…') + '</span>' +
+      '</div>' +
+      '<div class="section-body" id="sb-archive"><div class="section-empty">Open to load…</div></div>' +
+    '</div>';
+  }
+
+  function loadArchive() {
+    document.getElementById('sb-archive').innerHTML =
+      '<div class="section-empty">Loading archive…</div>';
+    App.run('getArchive', [], {
+      ok: function (rows) { archiveRows = rows || []; renderArchive(); },
+      err: function (e) {
+        document.getElementById('sb-archive').innerHTML =
+          '<div class="section-empty">Failed to load: ' + esc(e.message) + '</div>';
+      }
+    });
+  }
+
+  function renderArchive() {
+    var body = document.getElementById('sb-archive');
+    if (!body || archiveRows === null) return;
+    var cnt = document.getElementById('archCount');
+    if (cnt) cnt.textContent = archiveRows.length;
+    var rows = archiveQuery
+      ? archiveRows.filter(function (r) {
+          return ((r.shed_name || '') + ' ' + (r.shed_type || '') + ' ' + (r.finish || ''))
+            .toLowerCase().indexOf(archiveQuery) > -1;
+        })
+      : archiveRows;
+    var html = '<div style="padding:6px 8px"><input type="text" data-arch-search placeholder="Search archive…" ' +
+      'value="' + esc(archiveQuery) + '" style="width:100%;border:1px solid #ccc;border-radius:6px;padding:6px 9px;font-size:13px"></div>';
+    if (!rows.length) {
+      html += '<div class="section-empty">' + (archiveRows.length ? 'No matches' : 'Nothing archived yet — jobs land here when marked Dispatched') + '</div>';
+    } else {
+      html += rows.map(function (r) {
+        return '<div class="arch-row">' +
+          '<div class="arch-main"><strong>' + esc(r.shed_name || r.shed_id) + '</strong>' +
+            '<span class="arch-sub">' + esc([r.shed_type, r.finish].filter(Boolean).join(' · ')) + '</span></div>' +
+          '<div class="arch-dates">' +
+            (r.stage_sprayed_date ? '🎨 ' + esc(App.fmtDayMonth(String(r.stage_sprayed_date).substring(0, 10))) + ' · ' : '') +
+            '🚚 ' + (r.stage_dispatched_date ? esc(App.fmtDayMonth(String(r.stage_dispatched_date).substring(0, 10))) : '—') +
+          '</div>' +
+          '<button class="arch-restore" data-act="restore-arch" data-id="' + esc(r.shed_id) + '">Restore</button>' +
+        '</div>';
+      }).join('');
+    }
+    body.innerHTML = html;
+  }
+
+  function restoreArchived(id) {
+    if (!confirm('Un-archive this job? It will reappear in the Tracker with Dispatched un-ticked.')) return;
+    App.run('restoreArchived', [id], {
+      ok: function () {
+        archiveRows = (archiveRows || []).filter(function (r) { return String(r.shed_id) !== String(id); });
+        var st = stateMap[id];
+        if (st) { st.stage_dispatched = 'FALSE'; st.stage_dispatched_date = ''; }
+        renderArchive();
+        render();
+      }
+    });
+  }
+
+  function detailItem(label, value) {
+    return '<div class="detail-item"><div class="d-label">' + esc(label) + '</div>' +
+      '<div class="d-val">' + esc(String(value)) + '</div></div>';
+  }
+
+  function toggleCard(id) {
+    var el = document.getElementById('exp-' + id);
+    if (!el) return;
+    expandedCards[id] = el.classList.toggle('open');
+  }
+
+  // ── Stage toggle ───────────────────────────────────────────
+  function toggleStage(id, key, idx) {
+    var state = getOrInitState(id);
+    var done  = stageComplete(state, key);
+    var delta = {};
+
+    if (!done) {
+      if (idx > 0 && !stageComplete(state, CFG.stages[idx - 1].key)) {
+        flashStatus(id, '⚠ Complete "' + CFG.stages[idx - 1].label + '" first', '#e65100');
+        return;
+      }
+      // Lid is a parallel workstation — assembly may legitimately start
+      // while the lid is still being built, so this is a STRONG WARNING,
+      // never a block (Dan, 2026-07-16). Dispatch gets the same warning.
+      if ((key === 'assembled' || key === 'dispatched') && state.lid_complete !== 'TRUE') {
+        var lidMsg = key === 'assembled'
+          ? '⚠ LID NOT COMPLETE for this job.\n\nAssembly can start while the lid is being built — but make sure the lid station has it in hand.\n\nMark Assembled anyway?'
+          : '⚠ LID NOT COMPLETE — this job is about to be marked DISPATCHED without a finished lid!\n\nAre you absolutely sure?';
+        if (!confirm(lidMsg)) return;
+      }
+      // Bespoke jobs must not start until the drawings are done (SKP + LYT,
+      // ticked by Dan in the Scheduler) — confirm() so a genuine exception
+      // can still proceed. Dan, 2026-07-16.
+      if (idx === 0) {
+        var jb = jobById(id);
+        if (jb && isBespokeType(jb.shedType) &&
+            (state.skp_done !== 'TRUE' || state.lyt_done !== 'TRUE') &&
+            !confirm('📐 Drawings are NOT complete for this bespoke job (SKP/LYT).\n\nBespoke builds should not start until the drawings are done. Start anyway?')) {
+          return;
+        }
+      }
+      // Name-tap: who did this stage? (async — save happens in the callback)
+      pickWorker(function (who) {
+        var now = new Date().toISOString();
+        state['stage_' + key] = 'TRUE';
+        state['stage_' + key + '_date'] = now;
+        state['stage_' + key + '_by'] = who;
+        delta['stage_' + key] = 'TRUE';
+        delta['stage_' + key + '_date'] = now;
+        delta['stage_' + key + '_by'] = who || null;
+        saveDelta(id, delta);
+        if (CFG.stages[idx].hasFaults) { openFaultModal(id, key); return; }
+        refreshCard(id);
+      });
+      return;
+    } else {
+      for (var i = idx + 1; i < CFG.stages.length; i++) {
+        if (stageComplete(state, CFG.stages[i].key)) {
+          flashStatus(id, '⚠ Clear "' + CFG.stages[i].label + '" first', '#e65100');
+          return;
+        }
+      }
+      if (!confirm('Remove "' + CFG.stages[idx].label + '"? This will clear the completion date.')) return;
+      state['stage_' + key] = 'FALSE';
+      state['stage_' + key + '_date'] = '';
+      state['stage_' + key + '_by'] = '';
+      delta['stage_' + key] = 'FALSE';
+      delta['stage_' + key + '_date'] = null;   // explicit clear — persists now
+      delta['stage_' + key + '_by'] = null;
+      saveDelta(id, delta);
+    }
+    refreshCard(id);
+  }
+
+  function onDateChange(id, field, value) {
+    var state = getOrInitState(id);
+    state[field] = value;
+    var delta = {};
+    delta[field] = value || null;
+    saveDelta(id, delta);
+  }
+
+  var notesTimers = {};
+  function onNotesInput(id) {
+    clearTimeout(notesTimers[id]);
+    notesTimers[id] = setTimeout(function () {
+      var ta = document.getElementById('ntx-' + id);
+      if (!ta) return;
+      var state = getOrInitState(id);
+      state.notes = ta.value;
+      saveDelta(id, { notes: ta.value || null });   // empty → null → actually cleared
+    }, 900);
+  }
+
+  // ── Fault modal ────────────────────────────────────────────
+  function openFaultModal(id, key) {
+    pendingFault = { id: id, key: key };
+    var existing = (stateMap[id] || {})['stage_' + key + '_faults'] || '';
+    // Structured issue categories alongside the free text (Dan, 2026-07-16 —
+    // for analysing workshop mistakes later)
+    var existingCats = String((stateMap[id] || {})['stage_' + key + '_fault_cats'] || '')
+      .split(';').map(function (c) { return c.trim(); }).filter(Boolean);
+    document.getElementById('faultCats').innerHTML = (CFG.qcIssueCategories || []).map(function (c) {
+      return '<label style="font-weight:400;font-size:14px;display:flex;align-items:center;gap:5px">' +
+        '<input type="checkbox" class="fault-cat" value="' + esc(c) + '"' +
+        (existingCats.indexOf(c) > -1 ? ' checked' : '') + '> ' + esc(c) + '</label>';
+    }).join('');
+    document.getElementById('faultText').value = existing;
+    document.getElementById('faultClearBtn').style.display = (existing || existingCats.length) ? '' : 'none';
+    document.getElementById('faultModalTitle').textContent = key.toUpperCase() + ' — Record faults';
+    document.getElementById('faultModal').classList.add('show');
+    document.getElementById('faultText').focus();
+  }
+
+  // Explicit clear — saving empty text is the only way faults persist as
+  // removed (Cancel just closes without saving).
+  function clearFaults() {
+    document.getElementById('faultText').value = '';
+    document.querySelectorAll('#faultCats .fault-cat').forEach(function (cb) { cb.checked = false; });
+    closeFaultModal(true);
+  }
+
+  function openHelp()  { document.getElementById('helpModal').classList.add('show'); }
+  function closeHelp() { document.getElementById('helpModal').classList.remove('show'); }
+
+  function closeFaultModal(save) {
+    document.getElementById('faultModal').classList.remove('show');
+    if (!pendingFault) return;
+    var id = pendingFault.id, key = pendingFault.key;
+    pendingFault = null;
+    if (save) {
+      var text = document.getElementById('faultText').value.trim();
+      var cats = Array.prototype.filter.call(
+        document.querySelectorAll('#faultCats .fault-cat'),
+        function (cb) { return cb.checked; }
+      ).map(function (cb) { return cb.value; }).join('; ');
+      var state = getOrInitState(id);
+      state['stage_' + key + '_faults'] = text;
+      state['stage_' + key + '_fault_cats'] = cats;
+      var delta = {};
+      delta['stage_' + key + '_faults'] = text || null;
+      delta['stage_' + key + '_fault_cats'] = cats || null;
+      saveDelta(id, delta);
+    }
+    refreshCard(id);
+  }
+
+  function editFaults(id, key) { openFaultModal(id, key); }
+
+  // ── Save (deltas + denormalised context) ───────────────────
+  function saveDelta(id, delta) {
+    var job = jobById(id);
+    if (job) {
+      if (job.jobRef)      delta.job_ref      = job.jobRef;
+      if (job.shedType)    delta.shed_type    = job.shedType;
+      if (job.finish)      delta.finish       = job.finish;
+      if (job.installDate) delta.install_date = job.installDate;
+    }
+    setSaveStatus(id, 'saving');
+    App.run('saveJobState', [id, delta], {
+      ok: function (r) { setSaveStatus(id, 'ok', r.timestamp); },
+      err: function (e) {
+        setSaveStatus(id, 'err');
+        App.showBanner('error', 'Save failed: ' + e.message);
+      }
+    });
+  }
+
+  function setSaveStatus(id, status, ts) {
+    var el = document.getElementById('ss-' + id);
+    if (!el) return;
+    if (status === 'ok')      { el.style.color = '#2d5a27'; el.textContent = '✓ Saved ' + (ts ? App.fmtTime(new Date(ts)) : ''); }
+    else if (status === 'err'){ el.style.color = '#b71c1c'; el.textContent = '✗ Save failed'; }
+    else                      { el.style.color = '#888';    el.textContent = 'Saving…'; }
+  }
+
+  function flashStatus(id, msg, colour) {
+    var el = document.getElementById('ss-' + id);
+    if (!el) return;
+    var prev = el.textContent, prevClr = el.style.color;
+    el.style.color = colour || '#e65100';
+    el.textContent = msg;
+    setTimeout(function () { el.style.color = prevClr; el.textContent = prev; }, 2800);
+  }
+
+  // ── Card refresh (preserves inputs / textarea cursor) ──────
+  function refreshCard(id) {
+    var state = stateMap[id] || {};
+
+    var dotsEl = document.getElementById('dots-' + id);
+    if (dotsEl) {
+      dotsEl.innerHTML = CFG.stages.map(function (s) {
+        var done = stageComplete(state, s.key);
+        var cls = done ? (s.key === 'dispatched' ? 'dot disp' : 'dot done') : 'dot';
+        return '<span class="' + cls + '" title="' + esc(s.label) + '"></span>';
+      }).join('');
+    }
+
+    // Lid button lives outside the stage list — refresh it the same way
+    // (it kept its stale colour after a tick until this, Dan 2026-07-16)
+    var lidBtn = document.getElementById('lid-' + id);
+    if (lidBtn) {
+      var lidDone = state.lid_complete === 'TRUE';
+      lidBtn.className = 'stage-btn lid-btn' + (lidDone ? ' done' : '');
+      lidBtn.querySelector('.s-tick').innerHTML = lidDone ? '&#10003;' : '';
+      lidBtn.querySelector('.s-date').textContent =
+        lidDone && state.lid_complete_date ? App.fmtDateTime(state.lid_complete_date) : '';
+    }
+
+    CFG.stages.forEach(function (s) {
+      var btn = document.getElementById('stg-' + id + '-' + s.key);
+      if (!btn) return;
+      var done = stageComplete(state, s.key);
+      var dateV = state['stage_' + s.key + '_date'];
+      btn.className = 'stage-btn' + (done ? ' done' + (s.key === 'dispatched' ? ' disp-done' : '') : '');
+      btn.querySelector('.s-tick').innerHTML = done ? '&#10003;' : '';
+      btn.querySelector('.s-date').textContent = done && dateV ? App.fmtDateTime(dateV) : '';
+    });
+
+    var exp = document.getElementById('exp-' + id);
+    if (exp) {
+      exp.querySelectorAll('.faults-row').forEach(function (el) { el.parentNode.removeChild(el); });
+      var grid = exp.querySelector('.stages-grid');
+      if (grid) grid.insertAdjacentHTML('afterend', faultRowsHtml(id, state));
+    }
+  }
+
+  // ── Odd jobs ───────────────────────────────────────────────
+  function buildOddJobsSection(jobs) {
+    var totalPending = 0;
+    var groupsHtml = CFG.oddJobs.map(function (oj) {
+      var secId = 'oj-' + oj.key;
+      if (sectionStates[secId] === undefined) sectionStates[secId] = false;
+
+      var pending = [], done = [];
+      jobs.forEach(function (j) {
+        var val = (stateMap[j.id] || {})[oj.key] || '';
+        if (val) done.push({ job: j, val: val });
+        else pending.push(j);
+      });
+      totalPending += pending.length;
+
+      var allDone = pending.length === 0;
+      var pendingIds = pending.map(function (j) { return j.id; }).join(',');
+
+      var html = '<div class="odd-job-group">' +
+        '<div class="section-hdr" data-sec="' + secId + '">' +
+          '<span class="section-chevron">&#9658;</span>' +
+          '<div style="flex:1;min-width:0">' +
+            '<div class="odd-job-title">' + esc(oj.label) + '</div>' +
+            '<div class="odd-job-sub">' + esc(oj.sub) + '</div>' +
+          '</div>' +
+          '<span class="odd-job-pending' + (allDone ? ' all-done' : '') + '">' +
+            (allDone ? '✓ All done' : pending.length + ' pending') + '</span>' +
+          '<button class="btn-batch-done"' + (allDone ? ' disabled' : '') +
+            ' data-act="odd-all" data-key="' + esc(oj.key) + '" data-ids="' + esc(pendingIds) + '">Mark all done</button>' +
+        '</div>' +
+        '<div class="section-body" id="sb-' + secId + '"><div class="odd-job-list">';
+
+      pending.forEach(function (j) {
+        html += '<div class="odd-job-row">' +
+          '<div class="odd-job-tick" data-act="odd-tick" data-key="' + esc(oj.key) + '" data-id="' + esc(j.id) + '">&#9633;</div>' +
+          '<span class="odd-job-shed">' + esc(j.jobRef || j.shedDealNumber || ('Shed ' + j.id)) + '</span></div>';
+      });
+      done.forEach(function (d) {
+        html += '<div class="odd-job-row done-row">' +
+          '<div class="odd-job-tick ticked" data-act="odd-tick" data-key="' + esc(oj.key) + '" data-id="' + esc(d.job.id) + '">&#10003;</div>' +
+          '<span class="odd-job-shed">' + esc(d.job.jobRef || d.job.shedDealNumber || ('Shed ' + d.job.id)) + '</span>' +
+          '<span class="odd-job-done-date">' + (d.val.length > 10 ? App.fmtDateTime(d.val) : esc(d.val)) + '</span></div>';
+      });
+      return html + '</div></div></div>';
+    }).join('');
+
+    return '<div class="section">' +
+      '<div class="section-hdr" data-sec="oddjobs">' +
+        '<span class="section-chevron">&#9658;</span>' +
+        '<span class="section-title">Odd Jobs</span>' +
+        '<span class="section-count">' + totalPending + ' pending</span>' +
+      '</div>' +
+      '<div class="section-body" id="sb-oddjobs">' + groupsHtml + '</div>' +
+    '</div>';
+  }
+
+  function markOddJobDone(taskKey, shedId) {
+    var state = getOrInitState(shedId);
+    if (state[taskKey]) {
+      if (!confirm('Remove completion for this task?')) return;
+      state[taskKey] = '';
+    } else {
+      state[taskKey] = new Date().toISOString();
+    }
+    render();
+    App.run('saveBatchOddJob', [taskKey, [shedId], state[taskKey]], {});
+  }
+
+  function markAllOddJobDone(taskKey, pendingIdsCsv) {
+    var ids = (pendingIdsCsv || '').split(',').filter(Boolean);
+    if (!ids.length) return;
+    var oj = CFG.oddJobs.filter(function (o) { return o.key === taskKey; })[0];
+    if (!confirm('Mark "' + (oj ? oj.label : taskKey) + '" done for all ' + ids.length + ' pending sheds?')) return;
+    var now = new Date().toISOString();
+    ids.forEach(function (id) { getOrInitState(id)[taskKey] = now; });
+    render();
+    App.run('saveBatchOddJob', [taskKey, ids, now], {});
+  }
+
+  // ── Small utilities ────────────────────────────────────────
+  function getOrInitState(id) {
+    if (!stateMap[id]) stateMap[id] = { shed_id: id };
+    return stateMap[id];
+  }
+  function stageComplete(state, key) {
+    var v = state['stage_' + key];
+    return v === 'TRUE' || v === true || v === 'true';
+  }
+  function jobById(id) {
+    for (var i = 0; i < allJobs.length; i++) if (allJobs[i].id === id) return allJobs[i];
+    return null;
+  }
+  function fmtGBP(n) {
+    return '£' + Number(n).toLocaleString('en-GB', { maximumFractionDigits: 0 });
+  }
+  // ── Worker name-tap (Steve, 2026-07-17) ────────────────────
+  // One person per stage is generally true; Steve taps who did it when he
+  // ticks. Powers the per-person efficiency reporting. Last pick is
+  // pre-highlighted; Skip records nobody.
+  var pendingWorkerCb = null;
+  var lastWorker = localStorage.getItem('trk_last_worker') || '';
+
+  function pickWorker(cb) {
+    pendingWorkerCb = cb;
+    var team = CFG.workshopTeam || [];
+    document.getElementById('workerGrid').innerHTML = team.map(function (n) {
+      var first = n.split(' ')[0] + ' ' + (n.split(' ')[1] || '').charAt(0);
+      return '<button class="worker-btn' + (n === lastWorker ? ' last' : '') + '" ' +
+        'data-act="pick-worker" data-name="' + esc(n) + '">' + esc(first) + '</button>';
+    }).join('');
+    document.getElementById('workerModal').classList.add('show');
+  }
+
+  function chooseWorker(name) {
+    document.getElementById('workerModal').classList.remove('show');
+    if (name) { lastWorker = name; localStorage.setItem('trk_last_worker', name); }
+    var cb = pendingWorkerCb;
+    pendingWorkerCb = null;
+    if (cb) cb(name || '');
+  }
+
+  function toggleLid(id) {
+    var state = getOrInitState(id);
+    var done = state.lid_complete === 'TRUE';
+    if (done) {
+      if (!confirm('Un-tick Lid Complete? This clears its completion date.')) return;
+      state.lid_complete = 'FALSE';
+      state.lid_complete_date = '';
+      state.lid_complete_by = '';
+      saveDelta(id, { lid_complete: 'FALSE', lid_complete_date: null, lid_complete_by: null });
+      refreshCard(id);
+      return;
+    }
+    pickWorker(function (who) {
+      var now = new Date().toISOString();
+      state.lid_complete = 'TRUE';
+      state.lid_complete_date = now;
+      state.lid_complete_by = who;
+      saveDelta(id, { lid_complete: 'TRUE', lid_complete_date: now, lid_complete_by: who || null });
+      refreshCard(id);
+    });
+  }
+
+  function isBespokeType(t) {
+    return /besp/.test(String(t || '').toLowerCase());
+  }
+
+  function stripHtml(s) {
+    // Strip tags first, THEN decode entities (&amp; → &) via a detached
+    // textarea — HubSpot rich-text fields arrive HTML-encoded (Dan spotted
+    // "&amp;" showing verbatim, 2026-07-16).
+    var txt = String(s || '').replace(/<[^>]*>/g, ' ');
+    var ta = document.createElement('textarea');
+    ta.innerHTML = txt;
+    return ta.value.replace(/\s+/g, ' ').trim();
+  }
+
+  // ── Event delegation ───────────────────────────────────────
+  // Dynamic HTML carries data-act/data-* labels instead of inline onclick
+  // strings; these three listeners on the stable #main container route
+  // every interaction to the same functions as before. (Static header/modal
+  // buttons keep plain onclick — they're fixed markup, no string-building.)
+  document.getElementById('main').addEventListener('click', function (e) {
+    var el = e.target.closest('[data-act]');
+    if (el) {
+      var d = el.dataset;
+      switch (d.act) {
+        case 'toggle-card': toggleCard(d.id); return;
+        case 'stage':       toggleStage(d.id, d.key, parseInt(d.idx, 10)); return;
+        case 'edit-faults': editFaults(d.id, d.key); return;
+        case 'odd-tick':    markOddJobDone(d.key, d.id); return;
+        // Returning here (without falling through to the section-header
+        // branch) is what replaces the old inline stopPropagation on the
+        // Mark-all-done button — the header it sits in must not toggle.
+        case 'odd-all':     markAllOddJobDone(d.key, d.ids); return;
+        case 'restore-arch': restoreArchived(d.id); return;
+        case 'lid':         toggleLid(d.id); return;
+      }
+      return;
+    }
+    var hdr = e.target.closest('.section-hdr[data-sec]');
+    if (hdr) {
+      var body = document.getElementById('sb-' + hdr.dataset.sec);
+      if (!body) return;
+      var open = body.classList.toggle('open');
+      hdr.classList.toggle('open', open);
+      sectionStates[hdr.dataset.sec] = open;
+      if (hdr.dataset.sec === 'archive' && open && archiveRows === null) loadArchive();
+    }
+  });
+  document.getElementById('main').addEventListener('input', function (e) {
+    var el = e.target.closest('[data-arch-search]');
+    if (el) { archiveQuery = el.value.trim().toLowerCase(); renderArchive(); }
+  });
+  document.getElementById('main').addEventListener('change', function (e) {
+    var el = e.target.closest('[data-date-field]');
+    if (el) onDateChange(el.dataset.id, el.dataset.dateField, el.value);
+  });
+  document.getElementById('main').addEventListener('input', function (e) {
+    var el = e.target.closest('[data-notes-id]');
+    if (el) onNotesInput(el.dataset.notesId);
+  });
+  // The worker modal lives OUTSIDE #main — its buttons need their own
+  // (static-container) listener or taps silently do nothing.
+  document.getElementById('workerGrid').addEventListener('click', function (e) {
+    var el = e.target.closest('[data-act="pick-worker"]');
+    if (el) chooseWorker(el.dataset.name);
+  });
+</script>
+</body>
+</html>

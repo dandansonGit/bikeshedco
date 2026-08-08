@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>BSC — Day Sheets</title>
+  <script>window.APP_BASE_URL = <?!= JSON.stringify(ScriptApp.getService().getUrl()) ?>;</script>
+  <?!= include('Shared'); ?>
+  <?!= include('DaysheetsStyles'); ?>
+</head>
+<body>
+
+<div class="header no-print">
+  <h1>Day Sheets</h1>
+  <div class="header-sep"></div>
+  <div class="header-meta" id="hdrMeta">Pick a day…</div>
+  <div id="viewNav"></div>
+  <button class="hbtn" onclick="window.print()" title="Print — one A4 page per station">🖨 Print sheets</button>
+  <button class="hbtn" onclick="openHelp()">?</button>
+</div>
+
+<div class="date-bar no-print">
+  <button class="hbtn" onclick="shiftDay(-1)">&#8592;</button>
+  <input type="date" id="dayPick" onchange="loadDay(this.value)">
+  <button class="hbtn" onclick="shiftDay(1)">&#8594;</button>
+  <button class="hbtn" onclick="jumpToday()">Today</button>
+  <span id="holNote" class="hol-tag" style="display:none"></span>
+  <span class="date-hint">Print in the morning · fill in with pen · key the numbers back in here at day-close</span>
+  <button class="btn-pri save-close" onclick="saveDayClose()" id="btnSaveClose">💾 Save day-close</button>
+</div>
+
+<div class="banner no-print" id="banner"></div>
+
+<div id="main" class="ds-main">
+  <div class="loading-wrap no-print"><div class="spinner"></div><div>Building the day's station queues…</div></div>
+</div>
+
+<div class="modal-bg" id="helpModal">
+  <div class="modal-box" style="max-width:500px">
+    <div class="modal-title">How day sheets work</div>
+    <div style="font-size:14px;line-height:1.6">
+      <div style="margin-bottom:8px"><strong>Queues are automatic</strong> — each station shows the jobs whose work is due that day, derived from the Scheduler's spray/assembly dates (cut &amp; framing = spray − 2 working days; lid = day before assembly). Red rows are overdue carry-overs. Est hrs = the job's build time × that station's share (draft weights).</div>
+      <div style="margin-bottom:8px"><strong>Non-sold tasks</strong> (deliveries, maintenance…) can be added to any station for the day — placeholder names until Dan's list lands.</div>
+      <div style="margin-bottom:8px"><strong>🖨 Print</strong> gives one A4 page per station with pen columns (actual hrs / who / ✓ / notes).</div>
+      <div><strong>Day-close</strong>: at the end of the day, type the paper numbers into the same grid and hit Save — that's the data that refines build times, the bespoke calculator and the per-person reports.</div>
+    </div>
+    <div class="modal-btns"><button class="btn-pri" onclick="closeHelp()">Got it</button></div>
+  </div>
+</div>
+
+<script>
+  var D = null;          // current day-sheet payload
+  var esc = App.esc;
+
+  window.addEventListener('load', function () {
+    document.getElementById('viewNav').innerHTML = App.viewNav('daysheets');
+    jumpToday();
+  });
+
+  function openHelp()  { document.getElementById('helpModal').classList.add('show'); }
+  function closeHelp() { document.getElementById('helpModal').classList.remove('show'); }
+
+  // Weekend "today" snaps forward to Monday — sheets are for working days
+  function jumpToday() {
+    var d = new Date(App.todayStr() + 'T12:00:00');
+    while (d.getDay() === 0 || d.getDay() === 6) d.setDate(d.getDate() + 1);
+    loadDay(App.isoDateStr(d));
+  }
+
+  function shiftDay(n) {
+    var d = new Date((D ? D.day : App.todayStr()) + 'T12:00:00');
+    do { d.setDate(d.getDate() + n); } while (d.getDay() === 0 || d.getDay() === 6);
+    loadDay(App.isoDateStr(d));
+  }
+
+  function loadDay(dayIso) {
+    if (!dayIso) return;
+    document.getElementById('dayPick').value = dayIso;
+    document.getElementById('main').innerHTML =
+      '<div class="loading-wrap no-print"><div class="spinner"></div></div>';
+    App.run('getDaySheetData', [dayIso], {
+      ok: function (result) {
+        D = result;
+        App.hideBanner();
+        var hol = document.getElementById('holNote');
+        hol.style.display = D.bankHoliday ? '' : 'none';
+        hol.textContent = D.bankHoliday ? '🏖 ' + D.bankHoliday : '';
+        var total = 0;
+        D.stations.forEach(function (s) { total += s.jobs.length + s.tasks.length; });
+        document.getElementById('hdrMeta').textContent =
+          App.fmtDateFull(D.day) + ' · ' + total + ' station task' + (total === 1 ? '' : 's');
+        render();
+      },
+      err: function (e) { App.showBanner('error', '⚠ Failed to load: ' + e.message); }
+    });
+  }
+
+  function workerOptions(sel) {
+    return '<option value=""></option>' + (D.workshopTeam || []).map(function (n) {
+      var short = n.split(' ')[0] + ' ' + (n.split(' ')[1] || '').charAt(0);
+      return '<option value="' + esc(n) + '"' + (n === sel ? ' selected' : '') + '>' + esc(short) + '</option>';
+    }).join('');
+  }
+
+  function render() {
+    var html = '';
+    D.stations.forEach(function (st) {
+      html += '<div class="station">' +
+        '<div class="st-hdr"><span class="st-name">' + esc(st.label) + '</span>' +
+          '<span class="st-day">' + esc(App.fmtDateFull(D.day)) + '</span>' +
+          '<span class="st-brand">The Bike Shed Co — day sheet</span></div>';
+
+      if (!st.jobs.length && !st.tasks.length) {
+        html += '<div class="st-empty">Nothing queued.</div>';
+      } else {
+        html += '<table class="st-tbl"><tr>' +
+          '<th class="c-n">#</th><th>Job</th><th>Type · Colour</th><th class="c-dwg">DWG</th>' +
+          '<th class="c-h">Est hrs</th><th class="c-h">Actual</th><th class="c-who">Who</th>' +
+          '<th class="c-done">Done</th><th>Notes</th></tr>';
+        st.jobs.forEach(function (j, i) {
+          // null est hrs can arrive as undefined (dropped in serialization)
+          var est = (j.estHrs === null || j.estHrs === undefined || j.estHrs === '') ? null : j.estHrs;
+          html += '<tr class="' + (j.overdue ? 'overdue' : '') + '" data-kind="job" ' +
+            'data-entry-key="' + esc(j.entryKey) + '" data-id="' + esc(j.id) + '" ' +
+            'data-name="' + esc(j.name) + '" data-station="' + esc(st.key) + '" data-est="' + (est === null ? '' : est) + '">' +
+            '<td class="c-n">' + (i + 1) + '</td>' +
+            '<td><strong>' + esc(j.name) + '</strong>' + (j.overdue ? ' <span class="ov-tag">overdue ' + esc(App.fmtDayMonth(j.due)) + '</span>' : '') + '</td>' +
+            '<td>' + esc([j.shedType, j.finish].filter(Boolean).join(' · ')) + '</td>' +
+            '<td class="c-dwg">' + esc(j.drawingNo || '') + '</td>' +
+            '<td class="c-h">' + (est === null ? '<span class="noest">?</span>' : est) + '</td>' +
+            '<td class="c-h"><input class="in-h" data-f="actual" value="' + esc(j.actualHrs) + '"></td>' +
+            '<td class="c-who"><select class="in-who" data-f="who">' + workerOptions(j.doneBy) + '</select></td>' +
+            '<td class="c-done"><input type="checkbox" data-f="done"' + (j.done ? ' checked' : '') + '></td>' +
+            '<td><input class="in-notes" data-f="notes" value="' + esc(j.closeNotes) + '"></td>' +
+          '</tr>';
+        });
+        st.tasks.forEach(function (t) {
+          html += '<tr class="task-row" data-kind="task" data-task-key="' + esc(t.task_key) + '">' +
+            '<td class="c-n">•</td>' +
+            '<td colspan="2"><em>' + esc(t.task) + '</em> <span class="ns-tag">non-sold</span></td>' +
+            '<td class="c-dwg"></td>' +
+            '<td class="c-h">' + esc(t.est_hrs || '') + '</td>' +
+            '<td class="c-h"><input class="in-h" data-f="actual" value="' + esc(t.actual_hrs || '') + '"></td>' +
+            '<td class="c-who"><select class="in-who" data-f="who">' + workerOptions(t.done_by || '') + '</select></td>' +
+            '<td class="c-done"><input type="checkbox" data-f="done"' + (t.done === 'TRUE' ? ' checked' : '') + '></td>' +
+            '<td><input class="in-notes" data-f="notes" value="' + esc(t.notes || '') + '"></td>' +
+          '</tr>';
+        });
+        html += '</table>';
+      }
+
+      html += '<div class="add-task no-print">' +
+        '<select id="nt-' + st.key + '">' + (D.nonSoldTasks || []).map(function (t) {
+          return '<option>' + esc(t) + '</option>';
+        }).join('') + '</select>' +
+        '<input id="nth-' + st.key + '" type="number" step="0.5" min="0" placeholder="est hrs" style="width:70px">' +
+        '<button class="hbtn" data-act="add-task" data-station="' + st.key + '">+ Add non-sold task</button>' +
+      '</div>';
+
+      html += '</div>';
+    });
+    document.getElementById('main').innerHTML = html;
+  }
+
+  function addTask(stationKey) {
+    var task = document.getElementById('nt-' + stationKey).value;
+    var est = document.getElementById('nth-' + stationKey).value;
+    App.run('addDayTask', [D.day, stationKey, task, est], {
+      ok: function () { loadDay(D.day); }
+    });
+  }
+
+  // Collect every row that has anything filled in and save the actuals
+  function saveDayClose() {
+    var entries = [];
+    document.querySelectorAll('#main tr[data-kind]').forEach(function (tr) {
+      var actual = tr.querySelector('[data-f="actual"]');
+      var who = tr.querySelector('[data-f="who"]');
+      var done = tr.querySelector('[data-f="done"]');
+      var notes = tr.querySelector('[data-f="notes"]');
+      if (!actual) return;
+      if (!actual.value && !who.value && !done.checked && !(notes && notes.value)) return;
+      var en = {
+        actualHrs: actual.value, doneBy: who.value,
+        done: done.checked, notes: notes ? notes.value : ''
+      };
+      if (tr.dataset.kind === 'task') en.taskKey = tr.dataset.taskKey;
+      else {
+        en.entryKey = tr.dataset.entryKey;
+        en.shedId = tr.dataset.id;
+        en.shedName = tr.dataset.name;
+        en.station = tr.dataset.station;
+        en.estHrs = tr.dataset.est;
+      }
+      entries.push(en);
+    });
+    if (!entries.length) { App.showBanner('warn', 'Nothing filled in to save yet.'); setTimeout(App.hideBanner, 2500); return; }
+    var btn = document.getElementById('btnSaveClose');
+    btn.disabled = true;
+    App.run('saveDayClose', [D.day, entries], {
+      ok: function (r) {
+        btn.disabled = false;
+        App.showBanner('ok', '✓ Day-close saved — ' + r.count + ' entr' + (r.count === 1 ? 'y' : 'ies'));
+        setTimeout(App.hideBanner, 3000);
+      },
+      err: function (e) { btn.disabled = false; App.showBanner('error', '⚠ ' + e.message); }
+    });
+  }
+
+  document.addEventListener('click', function (e) {
+    var el = e.target.closest('[data-act="add-task"]');
+    if (el) addTask(el.dataset.station);
+  });
+</script>
+</body>
+</html>

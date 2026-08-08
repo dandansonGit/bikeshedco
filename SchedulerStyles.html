@@ -1,0 +1,280 @@
+<!-- Styles for Scheduler.html - split out so style edits touch a small file.
+     Pulled in by the view's SchedulerStyles include. NEVER write the include
+     scriptlet syntax literally in this file (even in a comment) - Apps Script
+     evaluates scriptlets inside comments, which would self-include forever. -->
+<style>
+    body { min-width: 1200px; overflow-x: auto; }
+
+    /* Search strip */
+    .search-strip {
+      background: #fff; border-bottom: 1px solid #ddd; padding: 6px 14px;
+      display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-height: 44px;
+    }
+    .search-input {
+      border: 1px solid #ccc; border-radius: 6px; padding: 5px 10px;
+      font-size: 13px; width: 220px; outline: none;
+    }
+    .search-input:focus { border-color: #2d5a27; box-shadow: 0 0 0 2px rgba(45,90,39,0.15); }
+    .filter-sel {
+      border: 1px solid #ccc; border-radius: 6px; padding: 5px 8px;
+      font-size: 13px; background: #fff; cursor: pointer; outline: none;
+    }
+    .filter-sel.active { border-color: #2d5a27; color: #2d5a27; font-weight: 700; }
+    /* Multi-select type dropdown */
+    .filter-multi { position: relative; }
+    .filter-menu {
+      display: none; position: absolute; top: calc(100% + 4px); left: 0;
+      background: #fff; border: 1px solid #ccc; border-radius: 6px;
+      padding: 6px 4px; z-index: 260; max-height: 320px; overflow-y: auto;
+      box-shadow: 0 6px 20px rgba(0,0,0,0.15); min-width: 160px;
+    }
+    .filter-menu.open { display: block; }
+    .filter-menu label {
+      display: flex; align-items: center; gap: 7px;
+      font-size: 13px; padding: 4px 8px; border-radius: 4px;
+      cursor: pointer; white-space: nowrap;
+    }
+    .filter-menu label:hover { background: #f0f4ef; }
+    .chip {
+      border: 1px solid #ccc; border-radius: 14px; padding: 4px 12px;
+      font-size: 12px; background: #fff; cursor: pointer; color: #555; white-space: nowrap;
+    }
+    .chip:hover { background: #f0f0f0; }
+    .chip.active { background: #2d5a27; color: #fff; border-color: #2d5a27; }
+    .clear-btn { border: none; background: none; color: #888; font-size: 12px; cursor: pointer; padding: 4px 6px; }
+    .clear-btn:hover { color: #333; }
+    .search-count { font-size: 12px; color: #888; white-space: nowrap; }
+    .card-dim { opacity: 0.25; pointer-events: none; }
+
+    /* Workspace */
+    .workspace { display: flex; height: calc(100vh - 96px); overflow: hidden; }
+    .sidebar {
+      width: 240px; min-width: 240px; background: #fff; border-right: 1px solid #ddd;
+      display: flex; flex-direction: column; overflow: hidden;
+    }
+    .sidebar-hdr {
+      padding: 10px 12px 8px; font-weight: 700; font-size: 13px; color: #444;
+      border-bottom: 1px solid #eee; background: #f8f9f8; flex-shrink: 0;
+    }
+    .sidebar-hdr span {
+      background: #e5e5e5; color: #555; border-radius: 10px;
+      padding: 1px 7px; font-size: 12px; margin-left: 6px;
+    }
+    .sidebar-body { flex: 1; overflow-y: auto; padding: 8px; }
+    .sidebar-body.drag-over { background: #eaf4e8; }
+    .sidebar-empty { padding: 20px 10px; text-align: center; color: #aaa; font-size: 13px; }
+
+    .board-wrap { flex: 1; overflow-x: auto; overflow-y: hidden; display: flex; flex-direction: column; }
+    .board { display: flex; gap: 10px; padding: 12px; height: 100%; min-width: max-content; }
+
+    /* Week columns */
+    .week-col {
+      width: 260px; min-width: 260px; display: flex; flex-direction: column;
+      background: #f4f6f4; border-radius: 10px; overflow: hidden; border: 2px solid transparent;
+    }
+    .week-col.drag-over { border-color: #2d5a27; background: #eaf4e8; }
+    /* Focus mode: one week stretched to use the freed-up board width
+       (still capped so lanes don't get absurdly wide on ultrawide monitors) */
+    .board.focus-mode { min-width: 0; width: 100%; }
+    .board.focus-mode .week-col { width: 100%; min-width: 480px; max-width: 1000px; }
+    .board.focus-mode .day-lane { min-height: 50px; }
+    .board.focus-mode .job-card { max-width: 440px; }
+    .week-hdr {
+      padding: 10px 12px 8px; background: #fff; border-bottom: 1px solid #e0e0e0;
+      cursor: pointer; user-select: none; flex-shrink: 0;
+    }
+    .week-hdr:hover { background: #f5f5f5; }
+    .week-title { font-weight: 700; font-size: 14px; }
+    .cap-bar-wrap { margin-top: 7px; }
+    .cap-bar-label { display: flex; justify-content: space-between; font-size: 11px; color: #666; margin-bottom: 3px; }
+    .cap-bar-track { height: 7px; background: #e0e0e0; border-radius: 4px; overflow: hidden; }
+    .cap-bar-fill { height: 100%; border-radius: 4px; background: #2d5a27; transition: width 0.2s; }
+    .cap-bar-fill.amber { background: #f9a825; }
+    .cap-bar-fill.red   { background: #e53935; }
+    .cap-note { font-size: 10px; color: #e65100; margin-top: 2px; }
+    .spray-summary { margin-top: 5px; font-size: 11px; color: #666; display: flex; justify-content: space-between; }
+    .spray-summary .over { color: #e53935; font-weight: 700; }
+    .leave-pills { display: flex; flex-wrap: wrap; gap: 3px; margin-top: 6px; }
+    .leave-pill { font-size: 10px; padding: 1px 5px; border-radius: 3px; background: #fce4e4; color: #b71c1c; }
+    .week-body { flex: 1; overflow-y: auto; padding: 8px; min-height: 60px; }
+
+    /* Spray-day lanes inside each week column */
+    .pool-zone {
+      border: 1px dashed #d5d5d5; border-radius: 7px;
+      padding: 4px 6px 5px; margin-bottom: 8px; min-height: 40px; background: #fbfcfb;
+    }
+    .pool-zone.drag-over { border: 2px solid #2d5a27; background: #eaf4e8; }
+    .pool-label { font-size: 10px; font-weight: 700; color: #999; text-transform: uppercase; letter-spacing: 0.3px; margin-bottom: 3px; }
+    .day-lane {
+      border: 1px dashed #d5d5d5; border-radius: 7px;
+      padding: 3px 6px 4px; margin-bottom: 5px; min-height: 34px; background: #fff;
+    }
+    .day-lane.drag-over { border: 2px solid #2d5a27; background: #eaf4e8; }
+    .day-lane.today-lane { border-color: #2d5a27; }
+    /* UK bank holidays — never worked; shaded so planning can't miss them */
+    .day-lane.bankhol, .day-col.bankhol {
+      background: repeating-linear-gradient(45deg, #fdf6e7, #fdf6e7 8px, #f6ecd6 8px, #f6ecd6 16px);
+      border-color: #dbc48f;
+    }
+    .hol-tag {
+      font-size: 10px; font-weight: 700; color: #9c6f00; background: #fff3cd;
+      border-radius: 3px; padding: 0 5px; white-space: nowrap;
+    }
+    .lane-hdr { display: flex; align-items: center; justify-content: space-between; margin-bottom: 3px; }
+    .lane-day { font-size: 11px; font-weight: 700; color: #888; }
+    .lane-hours { font-size: 10px; color: #aaa; }
+    .spray-meter {
+      font-size: 10px; font-weight: 700; border-radius: 8px; padding: 1px 7px;
+      background: #eee; color: #999;
+    }
+    .spray-meter.m-low  { background: #eceff1; color: #78909c; }
+    .spray-meter.m-ok   { background: #e8f5e3; color: #2d5a27; }
+    .spray-meter.m-high { background: #fff3cd; color: #8a5e00; }
+    .spray-meter.m-over { background: #fce4e4; color: #b71c1c; }
+    .colour-clash {
+      font-size: 9px; font-weight: 700; border-radius: 8px; padding: 1px 6px;
+      background: #fce4e4; color: #b71c1c; white-space: nowrap;
+    }
+    .spray-chip {
+      font-size: 10px; font-weight: 700; background: #ede7f6; color: #4527a0;
+      border-radius: 3px; padding: 1px 5px;
+    }
+    .btn-plan {
+      background: #6a3fc4; color: #fff; border: none; border-radius: 5px;
+      padding: 3px 9px; font-size: 11px; font-weight: 700; cursor: pointer; float: right;
+    }
+    .btn-plan:hover { background: #5a34a6; }
+
+    /* Collapsed by default — a full colour list ate into the week's card
+       area (esp. the first, busiest column). One-line summary, click to expand. */
+    .spray-section { border-top: 1px solid #ddd; background: #f0f4f0; flex-shrink: 0; }
+    .spray-section-hdr {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 6px 8px; cursor: pointer; user-select: none;
+    }
+    .spray-section-hdr:hover { background: #e6ece6; }
+    .spray-section-title {
+      font-size: 11px; font-weight: 700; color: #555;
+      text-transform: uppercase; letter-spacing: 0.3px;
+    }
+    .spray-section-chevron { font-size: 10px; color: #888; transition: transform 0.15s; }
+    .spray-section.open .spray-section-chevron { transform: rotate(90deg); }
+    .spray-section-body { display: none; padding: 0 8px 8px; }
+    .spray-section.open .spray-section-body { display: block; }
+    .spray-batch {
+      font-size: 12px; padding: 3px 6px; border-radius: 4px; background: #fff;
+      margin-bottom: 4px; border-left: 3px solid #ccc; color: #333;
+    }
+    .spray-batch.warn { background: #fce4e4; border-color: #e53935; }
+
+    /* Job cards */
+    .job-card {
+      background: #fff; border-radius: 7px; margin-bottom: 7px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1); border-left: 4px solid #ccc;
+      cursor: grab; user-select: none; position: relative;
+    }
+    .job-card:active { cursor: grabbing; }
+    .job-card.dragging { opacity: 0.45; }
+    .job-card.locked { cursor: default; }
+    .job-card.locked::after { content: '🔒'; position: absolute; top: 4px; right: 26px; font-size: 11px; }
+    .card-edit {
+      position: absolute; top: 2px; right: 2px;
+      border: none; background: transparent; color: #aaa;
+      font-size: 13px; cursor: pointer; padding: 2px 5px; border-radius: 4px;
+    }
+    .card-edit:hover { background: #eee; color: #333; }
+    .week-empty {
+      font-size: 12px; color: #aaa; text-align: center;
+      padding: 18px 8px; border: 1px dashed #ddd; border-radius: 7px;
+    }
+    .day-view-hint { float: right; font-size: 11px; font-weight: 400; color: #999; }
+    .week-hdr:hover .day-view-hint { color: #2d5a27; }
+    .help-list { font-size: 13px; line-height: 1.55; }
+    .help-list div { margin-bottom: 7px; }
+    .card-body { padding: 8px 10px; }
+    .card-ref { font-weight: 700; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .card-type { font-size: 12px; color: #666; margin-top: 1px; }
+    .card-row { display: flex; align-items: center; gap: 6px; margin-top: 5px; flex-wrap: wrap; }
+    .card-days { font-size: 11px; color: #888; }
+    .card-days.bespoke { color: #e65100; font-weight: 700; }
+    .card-days.nohours {
+      color: #b71c1c; font-weight: 700;
+      background: #fce4e4; border-radius: 4px; padding: 1px 5px;
+    }
+    .card-stages { display: flex; gap: 3px; margin-top: 4px; flex-wrap: wrap; }
+    .sdot { width: 8px; height: 8px; border-radius: 50%; background: #ddd; }
+    .sdot.done { background: #2d5a27; }
+    .card-extras { display: flex; gap: 4px; margin-top: 4px; font-size: 13px; }
+
+    /* Finish colours */
+    /* Finish colours: border + background tint so colour batches read at a
+       glance across the board (Dan, 2026-07-16; strengthened same day —
+       the first pass was too subtle) */
+    .fc-field-green  { border-left-color: #2d5a27; background: #e2eedd; }
+    .fc-mercury-grey { border-left-color: #78909c; background: #e6ebee; }
+    .fc-bishop-blue  { border-left-color: #1565c0; background: #ddeafa; }
+    .fc-slate-blue   { border-left-color: #5c6bc0; background: #e4e7f7; }
+    .fc-signal-white { border-left-color: #9e9e9e; background: #fafaf6; }
+    .fc-anthracite   { border-left-color: #37474f; background: #dfe6e9; }
+    .fc-moss-green   { border-left-color: #558b2f; background: #e6f1da; }
+    .fc-blackdown    { border-left-color: #2f3a33; background: #dfe8e2; }
+    .fc-cavepool-grey{ border-left-color: #8a9296; background: #e7ebec; }
+    .fc-clear-uv     { border-left-color: #c9a86a; background: #f6edd8; }
+    .fc-ral-match    { border-left-color: #8e5aa8; background: #efe3f6; }
+    .fc-other        { border-left-color: #a0522d; background: #f4e6dc; }
+    /* Tight spray warnings: amber = under the working-day buffer, red = after dispatch */
+    .spray-chip.tight { background: #fff3cd; color: #8a5e00; }
+    .spray-chip.late  { background: #fce4e4; color: #b71c1c; font-weight: 700; }
+    /* Drawing gate chip on bespoke cards missing SKP/LYT */
+    .gate-chip {
+      font-size: 10px; font-weight: 700; background: #fce4e4; color: #b71c1c;
+      border-radius: 4px; padding: 1px 6px; white-space: nowrap;
+    }
+    /* Chase banners (drawings needed / buy sedum) */
+    .chase {
+      margin: 6px 14px 0; border-radius: 8px; border: 1px solid #e6d9a8;
+      background: #fdf8e3; font-size: 13px;
+    }
+    .chase.chase-sedum { border-color: #bcd9b0; background: #eef7e9; }
+    .chase summary { padding: 7px 12px; font-weight: 700; cursor: pointer; }
+    .chase-row {
+      display: flex; align-items: center; gap: 10px; padding: 4px 14px 4px 28px;
+    }
+    .chase-name { font-weight: 600; min-width: 220px; }
+    .chase-date { color: #777; font-size: 12px; min-width: 120px; }
+    .chase-btn {
+      border: 1px solid #2d5a27; color: #2d5a27; background: #fff; border-radius: 5px;
+      padding: 2px 9px; font-size: 12px; font-weight: 700; cursor: pointer;
+    }
+    .chase-btn:hover { background: #eaf4e8; }
+    .chase-done { color: #2d5a27; font-weight: 700; font-size: 12px; }
+
+    /* Day panel */
+    .day-panel {
+      position: fixed; top: 52px; right: -520px; width: 500px;
+      height: calc(100vh - 52px); background: #fff;
+      box-shadow: -4px 0 20px rgba(0,0,0,0.15); transition: right 0.25s ease;
+      z-index: 150; display: flex; flex-direction: column; overflow: hidden;
+    }
+    .day-panel.open { right: 0; }
+    .day-panel-hdr {
+      background: #2d5a27; color: #fff; padding: 12px 16px;
+      display: flex; align-items: center; justify-content: space-between; flex-shrink: 0;
+    }
+    .day-panel-title { font-weight: 700; font-size: 15px; }
+    .day-panel-close { background: none; border: none; color: #fff; font-size: 20px; cursor: pointer; padding: 0 4px; line-height: 1; }
+    .day-panel-body { flex: 1; overflow-y: auto; padding: 12px; }
+    .day-col { margin-bottom: 14px; }
+    .day-col-title {
+      font-weight: 700; font-size: 13px; color: #333;
+      padding-bottom: 5px; border-bottom: 2px solid #2d5a27; margin-bottom: 6px;
+    }
+    .day-session {
+      background: #f8f9f8; border-radius: 5px; padding: 6px 8px; margin-bottom: 4px;
+      font-size: 12px; min-height: 36px; border: 1px dashed #ddd;
+    }
+    .day-session.has-job { background: #e8f5e3; border: 1px solid #a5d6a7; }
+    .day-session-label { font-size: 11px; color: #888; margin-bottom: 2px; }
+    .day-session-job { font-weight: 600; color: #2d5a27; }
+    .day-leave { font-size: 11px; color: #b71c1c; margin-top: 3px; }
+  </style>

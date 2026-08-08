@@ -1,0 +1,48 @@
+<!-- Styles for Reports.html. NEVER write the include scriptlet syntax
+     literally in this file (even in a comment) - Apps Script evaluates
+     scriptlets inside comments. -->
+<style>
+    body { min-width: 0; background: #f6f7f6; }
+    .rep-main { padding: 16px; max-width: 1100px; margin: 0 auto; }
+
+    .cov-box {
+      background: #fdf8e3; border: 1px solid #eadfae; border-radius: 9px;
+      padding: 10px 14px; font-size: 13px; line-height: 1.8; margin-bottom: 14px;
+    }
+
+    .cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 16px; }
+    @media (max-width: 900px) { .cards { grid-template-columns: repeat(2, 1fr); } }
+    .card {
+      background: #fff; border: 1px solid #e0e0e0; border-radius: 10px;
+      padding: 12px 14px; box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+    }
+    .c-label { font-size: 11px; font-weight: 700; color: #888; text-transform: uppercase; letter-spacing: 0.4px; }
+    .c-big { font-size: 24px; font-weight: 800; margin: 4px 0 2px; }
+    .c-sub { font-size: 12px; color: #999; }
+
+    .rate.good { color: #2d5a27; }
+    .rate.warn { color: #b58900; }
+    .rate.bad  { color: #b71c1c; }
+    .dim { color: #aaa; }
+
+    .tabs { display: flex; gap: 6px; margin: 6px 0 10px; }
+    .tab {
+      border: 1px solid #ccc; background: #fff; border-radius: 7px;
+      padding: 6px 16px; font-size: 13px; font-weight: 700; cursor: pointer; color: #555;
+    }
+    .tab.active { background: #2d5a27; border-color: #2d5a27; color: #fff; }
+
+    .tbl-wrap { background: #fff; border: 1px solid #e0e0e0; border-radius: 10px; overflow-x: auto; margin-bottom: 16px; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th { text-align: left; padding: 8px 10px; border-bottom: 2px solid #ddd; color: #666; white-space: nowrap; }
+    td { padding: 7px 10px; border-bottom: 1px solid #f0f0f0; white-space: nowrap; }
+    tr:last-child td { border-bottom: none; background: #f8faf7; font-weight: 600; }
+
+    .sec-title { font-size: 14px; font-weight: 700; margin: 4px 0 8px; color: #444; }
+
+    @media print {
+      .header .hbtn, #viewNav, .tabs { display: none; }
+      body { background: #fff; }
+      .card { box-shadow: none; }
+    }
+</style>

@@ -1,0 +1,208 @@
+<!-- Styles for Tracker.html - split out so style edits touch a small file.
+     Pulled in by the view's TrackerStyles include. NEVER write the include
+     scriptlet syntax literally in this file (even in a comment) - Apps Script
+     evaluates scriptlets inside comments, which would self-include forever. -->
+<style>
+    body { font-size: 15px; }
+
+    .main { max-width: 1400px; margin: 0 auto; padding: 14px 14px 40px; }
+    .main-grid { display: flex; gap: 14px; align-items: flex-start; }
+    .col-left  { flex: 1 1 0; min-width: 0; }
+    .col-right { width: 360px; flex-shrink: 0; }
+    @media (max-width: 900px) {
+      .main-grid { flex-direction: column; }
+      .col-right { width: 100%; }
+    }
+
+    /* Search strip */
+    .search-wrap {
+      background: #235020; padding: 8px 16px 10px;
+      display: flex; flex-direction: column; gap: 8px;
+    }
+    .search-row { display: flex; align-items: center; gap: 8px; }
+    .search-input {
+      flex: 1; border: none; border-radius: 7px; padding: 9px 12px;
+      font-size: 15px; min-height: 40px;
+      background: rgba(255,255,255,0.95); color: #1a1a1a; outline: none;
+    }
+    .btn-clear-search {
+      background: rgba(255,255,255,0.2); color: #fff;
+      border: 1px solid rgba(255,255,255,0.4); border-radius: 7px;
+      padding: 0 13px; font-size: 13px; font-weight: 700;
+      cursor: pointer; min-height: 40px; white-space: nowrap;
+    }
+    .filter-chips { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+    .filter-select {
+      background: rgba(255,255,255,0.15); color: #fff;
+      border: 1px solid rgba(255,255,255,0.3); border-radius: 6px;
+      padding: 5px 8px; font-size: 13px; cursor: pointer; min-height: 32px;
+    }
+    .filter-select option { color: #1a1a1a; background: #fff; }
+    .chip-toggle {
+      background: rgba(255,255,255,0.15); color: rgba(255,255,255,0.85);
+      border: 1px solid rgba(255,255,255,0.3); border-radius: 6px;
+      padding: 5px 11px; font-size: 13px; cursor: pointer;
+      min-height: 32px; white-space: nowrap;
+    }
+    .chip-toggle.active { background: #fff; color: #2d5a27; border-color: #fff; font-weight: 700; }
+    .search-count { font-size: 12px; color: rgba(255,255,255,0.7); margin-left: 4px; }
+
+    /* Sections */
+    .section { margin-bottom: 14px; }
+    .section-hdr {
+      display: flex; align-items: center; gap: 8px; padding: 11px 14px;
+      background: #fff; border-radius: 9px; cursor: pointer; user-select: none;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+    .section-chevron {
+      font-size: 11px; color: #888; display: inline-block;
+      transition: transform 0.18s; width: 12px;
+    }
+    .section-hdr.open .section-chevron { transform: rotate(90deg); }
+    .section-title { font-weight: 700; font-size: 15px; flex: 1; }
+    .section-count {
+      background: #e5e5e5; color: #555; border-radius: 12px;
+      padding: 2px 9px; font-size: 13px; font-weight: 600;
+    }
+    .section-count.red-count { background: #fce4e4; color: #b71c1c; }
+    .section-body { display: none; }
+    .section-body.open { display: block; }
+    .section-empty { padding: 18px 14px; font-size: 14px; color: #999; text-align: center; }
+
+    /* Job cards */
+    .job-card {
+      background: #fff; border-radius: 9px; margin-top: 8px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1); overflow: hidden;
+    }
+    .job-row {
+      display: flex; align-items: center; gap: 10px; padding: 11px 14px;
+      cursor: pointer; flex-wrap: wrap; row-gap: 6px;
+    }
+    .job-row:active { background: #f9f9f9; }
+    .job-info { flex: 1 1 180px; min-width: 0; }
+    .job-ref  { font-weight: 700; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .job-sub  { font-size: 13px; color: #666; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .multi-badge {
+      display: inline-block; font-size: 11px; font-weight: 700;
+      background: #ede7f6; color: #4527a0; border-radius: 4px;
+      padding: 1px 5px; margin-left: 4px; vertical-align: middle;
+    }
+    .tracker-date { min-width: 94px; text-align: center; font-size: 13px; padding: 5px 9px; border-radius: 6px; }
+
+    .dispatch-badge { font-size: 12px; font-weight: 700; padding: 4px 8px; border-radius: 5px; white-space: nowrap; }
+    .chip-drawings { background: #fce4e4; color: #b71c1c; font-weight: 700; }
+    .chip-lid { background: #fff3cd; color: #8a5e00; font-weight: 700; }
+    .worker-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin: 8px 0 4px; }
+    .worker-btn {
+      border: 1px solid #ccc; background: #fff; border-radius: 8px;
+      padding: 13px 6px; font-size: 15px; font-weight: 700; cursor: pointer; color: #333;
+    }
+    .worker-btn.last { border-color: #2d5a27; background: #eef6ec; color: #2d5a27; }
+    .worker-btn:active { background: #eaf4e8; }
+    .lid-btn { border-color: #b8a24a; }
+    .lid-btn.done { background: #e8f5e3; }
+    /* Archive rows */
+    .arch-row {
+      display: flex; align-items: center; gap: 10px;
+      padding: 7px 10px; border-bottom: 1px solid #eee; font-size: 13px;
+    }
+    .arch-main { flex: 1; min-width: 0; }
+    .arch-main strong { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .arch-sub { color: #888; font-size: 12px; }
+    .arch-dates { color: #555; font-size: 12px; white-space: nowrap; }
+    .arch-restore {
+      border: 1px solid #ccc; background: #fff; border-radius: 5px;
+      padding: 3px 10px; font-size: 12px; cursor: pointer; color: #555;
+    }
+    .arch-restore:hover { border-color: #b71c1c; color: #b71c1c; }
+    .db-install { background: #2d5a27; color: #fff; }
+    .db-team    { background: #1565c0; color: #fff; }
+    .db-andy    { background: #6a1b9a; color: #fff; }
+    .db-courier { background: #e65100; color: #fff; }
+    .db-collection { background: #37474f; color: #fff; }
+    .db-other   { background: #e0e0e0; color: #555; }
+
+    .prog-dots { display: flex; gap: 5px; align-items: center; flex-shrink: 0; }
+    .dot { width: 11px; height: 11px; border-radius: 50%; background: #ddd; }
+    .dot.done { background: #2d5a27; }
+    .dot.disp { background: #1565c0; }
+
+    .extras { display: flex; flex-wrap: wrap; gap: 4px; flex-shrink: 0; }
+    .chip { font-size: 11px; padding: 2px 6px; border-radius: 4px; background: #f0f0f0; color: #555; white-space: nowrap; }
+    .chip-note { background: #fff8e1; color: #8a5e00; }
+
+    /* Expand area */
+    .job-expand { display: none; border-top: 1px solid #eee; padding: 16px; }
+    .job-expand.open { display: block; }
+    .stages-label { font-size: 13px; font-weight: 700; color: #555; margin-bottom: 8px; }
+    .stages-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; margin-bottom: 10px; }
+    @media (max-width: 540px) { .stages-grid { grid-template-columns: repeat(2, 1fr); } }
+    .stage-btn {
+      border: 2px solid #ddd; border-radius: 8px; background: #fff;
+      padding: 10px 6px; min-height: 68px;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      gap: 3px; cursor: pointer; text-align: center;
+      transition: transform 0.1s, background 0.15s;
+    }
+    .stage-btn:active { transform: scale(0.96); }
+    .stage-btn.done { background: #2d5a27; border-color: #2d5a27; color: #fff; }
+    .stage-btn.done.disp-done { background: #1565c0; border-color: #1565c0; }
+    .stage-btn .s-tick  { font-size: 16px; line-height: 1; }
+    .stage-btn .s-label { font-size: 13px; font-weight: 700; }
+    .stage-btn .s-date  { font-size: 11px; opacity: 0.78; min-height: 13px; }
+
+    .faults-row { display: flex; align-items: flex-start; gap: 8px; margin: -2px 0 10px; font-size: 13px; }
+    .faults-text { background: #fce4e4; color: #b71c1c; border-radius: 5px; padding: 4px 8px; flex: 1; line-height: 1.4; }
+    .faults-edit { color: #1565c0; text-decoration: underline; cursor: pointer; padding-top: 4px; white-space: nowrap; }
+
+    .dates-row { display: flex; flex-wrap: wrap; gap: 14px; margin: 14px 0 12px; }
+    .date-field label { display: block; font-size: 13px; font-weight: 700; color: #555; margin-bottom: 4px; }
+    .date-field input[type=date] {
+      border: 1px solid #ccc; border-radius: 7px; padding: 9px 10px;
+      font-size: 15px; min-height: 44px; width: 178px; background: #fff;
+    }
+    .notes-section { margin: 12px 0; }
+    .notes-section label { display: block; font-size: 13px; font-weight: 700; color: #555; margin-bottom: 4px; }
+    .notes-section textarea {
+      width: 100%; border: 1px solid #ccc; border-radius: 7px;
+      padding: 9px 10px; font-size: 15px; min-height: 62px; resize: vertical; font-family: inherit;
+    }
+
+    .details-panel { background: #f4f6f4; border-radius: 7px; padding: 12px; margin: 12px 0; font-size: 13px; }
+    .details-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 20px; }
+    .detail-item .d-label { color: #888; font-size: 12px; }
+    .detail-item .d-val   { font-weight: 700; margin-top: 1px; }
+    .detail-extras { margin-top: 8px; padding-top: 8px; border-top: 1px solid #ddd; line-height: 1.5; }
+    .save-status { font-size: 13px; font-weight: 600; text-align: right; min-height: 22px; margin-top: 6px; color: #2d5a27; }
+
+    /* Odd jobs */
+    .odd-job-group { background: #fff; border-radius: 9px; margin-top: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); overflow: hidden; }
+    .odd-job-title { font-weight: 700; font-size: 15px; }
+    .odd-job-sub   { font-size: 12px; color: #888; margin-top: 1px; }
+    .odd-job-pending {
+      background: #fff3cd; color: #8a5e00; border-radius: 12px;
+      padding: 2px 9px; font-size: 13px; font-weight: 600; white-space: nowrap;
+    }
+    .odd-job-pending.all-done { background: #e8f5e3; color: #2d5a27; }
+    .btn-batch-done {
+      background: #2d5a27; color: #fff; border: none; border-radius: 7px;
+      padding: 8px 14px; font-size: 13px; font-weight: 700;
+      cursor: pointer; min-height: 36px; white-space: nowrap;
+    }
+    .btn-batch-done:disabled { opacity: 0.45; cursor: default; }
+    .odd-job-list { border-top: 1px solid #eee; }
+    .odd-job-row {
+      display: flex; align-items: center; gap: 10px; padding: 9px 14px;
+      border-bottom: 1px solid #f5f5f5; font-size: 14px;
+    }
+    .odd-job-row:last-child { border-bottom: none; }
+    .odd-job-row.done-row { opacity: 0.45; }
+    .odd-job-shed { flex: 1; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .odd-job-done-date { font-size: 12px; color: #888; white-space: nowrap; }
+    .odd-job-tick {
+      width: 28px; height: 28px; border: 2px solid #ddd; border-radius: 6px;
+      background: #fff; display: flex; align-items: center; justify-content: center;
+      cursor: pointer; font-size: 15px; flex-shrink: 0; color: #2d5a27;
+    }
+    .odd-job-tick.ticked { background: #2d5a27; border-color: #2d5a27; color: #fff; }
+  </style>

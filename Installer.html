@@ -1,0 +1,519 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>BSC — Installer</title>
+  <script>window.APP_BASE_URL = <?!= JSON.stringify(ScriptApp.getService().getUrl()) ?>;</script>
+  <?!= include('Shared'); ?>
+  <?!= include('InstallerStyles'); ?>
+</head>
+<body>
+
+<div class="header">
+  <h1>Installer</h1>
+  <div class="header-sep"></div>
+  <div class="header-meta" id="hdrMeta">Loading…</div>
+  <div id="viewNav"></div>
+  <button class="hbtn" onclick="openHelp()" title="How this works">?</button>
+  <button class="hbtn" id="btnRefresh" onclick="doRefresh()">⟳</button>
+</div>
+
+<div class="week-bar">
+  <button class="hbtn wk-nav" onclick="shiftWeek(-1)">&#8592;</button>
+  <div class="day-strip" id="dayStrip"></div>
+  <button class="hbtn wk-nav" onclick="shiftWeek(1)">&#8594;</button>
+  <button class="hbtn wk-nav" onclick="jumpToday()">Today</button>
+</div>
+
+<div class="filter-bar">
+  <button class="team-chip" id="teamChip" onclick="toggleTeamOnly()">Team jobs only</button>
+  <span class="legend">
+    <span class="lg lg-install">Install</span>
+    <span class="lg lg-team">Del Team</span>
+    <span class="lg lg-andy">Andy</span>
+    <span class="lg lg-courier">Courier</span>
+    <span class="lg lg-visit">Visit</span>
+  </span>
+</div>
+
+<div class="banner" id="banner"></div>
+<div id="main" class="inst-main">
+  <div class="loading-wrap"><div class="spinner"></div><div>Loading your schedule…</div></div>
+</div>
+
+<div class="modal-bg" id="helpModal">
+  <div class="modal-box" style="max-width:440px">
+    <div class="modal-title">How this works</div>
+    <div style="font-size:14px;line-height:1.6">
+      <div style="margin-bottom:8px"><strong>Day strip</strong> — tap a day (Mon–Fri; weekend days only appear if something is booked; 🏖 = bank holiday). Jobs are in driving order from the workshop with drive times; use the <strong>▲▼</strong> buttons to reorder stops — the route times update and the order is saved for everyone.</div>
+      <div style="margin-bottom:8px"><strong>Card colours</strong> — green = install, blue = team delivery, teal = Andy, amber = courier, grey = collection, dashed violet = survey/amendment visit. <strong>Team jobs only</strong> hides everything that isn't the crew's own drive (installs + team deliveries + visits).</div>
+      <div style="margin-bottom:8px"><strong>🗺 Directions</strong> opens maps with the address set. <strong>📞</strong> dials. <strong>📁 Project folder</strong> opens the customer's OneDrive (drawings in "3. Drawings").</div>
+      <div><strong>📝 Job report</strong> is required for every install/team delivery — arrival, time taken, QC4, problems. Ticking <strong>rework required</strong> emails the office immediately.</div>
+    </div>
+    <div class="modal-btns"><button class="btn-pri" onclick="closeHelp()">Got it</button></div>
+  </div>
+</div>
+
+<div class="modal-bg" id="reportModal">
+  <div class="modal-box" style="max-width:460px">
+    <div class="modal-title" id="reportTitle">Job report</div>
+    <div class="form-row2">
+      <div><label>Arrival time</label><input type="time" id="repArrival"></div>
+      <div><label>Time taken (hrs)</label><input type="number" id="repTaken" step="0.25" min="0" placeholder="e.g. 2.5"></div>
+    </div>
+    <div class="form-col">
+      <label>QC4 — on-site quality check</label>
+      <div class="qc4-row">
+        <label class="qc4-opt"><input type="radio" name="qc4" id="repQc4Pass" value="pass"> ✅ All good</label>
+        <label class="qc4-opt"><input type="radio" name="qc4" id="repQc4Fail" value="fail"> ⚠ Issues found</label>
+      </div>
+      <textarea id="repQc4Faults" placeholder="Describe the QC issues…" style="display:none"></textarea>
+    </div>
+    <div class="form-col rework-box">
+      <label class="qc4-opt" style="font-weight:700"><input type="checkbox" id="repRework"> 🔧 Rework required (missing/damaged item — emails the office)</label>
+      <textarea id="repReworkDetails" placeholder="What's needed? e.g. shelf missing, LHS panel damaged in transit…" style="display:none"></textarea>
+    </div>
+    <div class="form-col">
+      <label>Notes</label>
+      <textarea id="repNotes" placeholder="Anything else about the visit…"></textarea>
+    </div>
+    <div class="modal-btns">
+      <button class="btn-sec" onclick="closeReport()">Cancel</button>
+      <button class="btn-pri" onclick="submitReport()">Submit report</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  // ── State ──────────────────────────────────────────────────
+  var days = {};            // date ISO → ordered job list
+  var visits = {};          // date ISO → survey/amendment visits
+  var routeParams = null;   // workshop coords + speed model (leg recompute)
+  var cacheTs = null;
+  var CFG = {};
+  var weekOffset = 0;
+  var selectedDate = null;
+  var reportingId = null;
+  // Installers: courier/Andy/collection are noise — hidden by default,
+  // remembered per device.
+  var teamOnly = (localStorage.getItem('inst_team_only') || '1') === '1';
+  var orderSaveTimer = null;
+
+  var esc = App.esc;
+
+  window.addEventListener('load', function () {
+    document.getElementById('viewNav').innerHTML = App.viewNav('installer');
+    updateTeamChip();
+    loadData(false);
+  });
+
+  setInterval(function () {
+    if (reportingId || document.querySelector('.modal-bg.show')) return;
+    loadData(false);
+  }, 15 * 60 * 1000);
+
+  function loadData(force) {
+    App.run('getInstallerData', [force], {
+      ok: function (result) {
+        days = result.days || {};
+        visits = result.visits || {};
+        routeParams = result.routeParams || routeParams;
+        cacheTs = result.timestamp;
+        CFG = result.config || CFG;
+        if (!selectedDate) { selectedDate = pickDefaultDate(); syncWeekToSelected(); }
+        App.hideBanner();
+        updateMeta();
+        render();
+      },
+      err: function (e) {
+        App.showBanner('error', '⚠ Failed to load: ' + e.message);
+      }
+    });
+  }
+
+  function doRefresh() {
+    var btn = document.getElementById('btnRefresh');
+    btn.disabled = true;
+    App.run('invalidateLiveCache', [], {
+      ok: function () { loadData(true); btn.disabled = false; },
+      err: function () { btn.disabled = false; }
+    });
+  }
+
+  function updateMeta() {
+    var total = 0;
+    Object.keys(days).forEach(function (d) { total += days[d].length; });
+    document.getElementById('hdrMeta').textContent =
+      total + ' scheduled job' + (total === 1 ? '' : 's') +
+      (cacheTs ? ' · updated ' + App.fmtTime(new Date(cacheTs)) : '');
+  }
+
+  function contentDates() {
+    var all = {};
+    Object.keys(days).forEach(function (d) { all[d] = true; });
+    Object.keys(visits).forEach(function (d) { all[d] = true; });
+    return all;
+  }
+
+  function pickDefaultDate() {
+    var today = App.todayStr();
+    var all = contentDates();
+    if (all[today]) return today;
+    var future = Object.keys(all).filter(function (d) { return d >= today; }).sort();
+    return future[0] || today;
+  }
+
+  function openHelp()  { document.getElementById('helpModal').classList.add('show'); }
+  function closeHelp() { document.getElementById('helpModal').classList.remove('show'); }
+
+  function toggleTeamOnly() {
+    teamOnly = !teamOnly;
+    localStorage.setItem('inst_team_only', teamOnly ? '1' : '0');
+    updateTeamChip();
+    render();
+  }
+  function updateTeamChip() {
+    document.getElementById('teamChip').classList.toggle('active', teamOnly);
+  }
+
+  // ── Rendering ──────────────────────────────────────────────
+  function shiftWeek(n) { weekOffset += n; render(); }
+  function jumpToday()  { selectedDate = pickDefaultDate(); syncWeekToSelected(); render(); }
+
+  function syncWeekToSelected() {
+    if (!selectedDate) { weekOffset = 0; return; }
+    var mon0 = App.weekDates(0)[0];
+    var d = new Date(selectedDate + 'T12:00:00');
+    var monSel = new Date(d);
+    monSel.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+    monSel.setHours(0, 0, 0, 0);
+    weekOffset = Math.round((monSel - mon0) / (7 * 86400000));
+  }
+
+  function render() {
+    renderDayStrip();
+    renderDay();
+  }
+
+  // Mon–Fri; Sat/Sun cells only when something is actually booked there.
+  function renderDayStrip() {
+    var mon = App.weekDates(weekOffset)[0];
+    var today = App.todayStr();
+    var all = contentDates();
+    var html = '';
+    for (var i = 0; i < 7; i++) {
+      var d = new Date(mon); d.setDate(d.getDate() + i);
+      var iso = App.isoDateStr(d);
+      var n = (days[iso] || []).length + (visits[iso] || []).length;
+      if (i >= 5 && !all[iso]) continue;   // weekends hidden unless booked
+      var hol = (CFG.bankHolidays || {})[iso];
+      html += '<div class="day-cell' + (iso === selectedDate ? ' sel' : '') +
+        (iso === today ? ' today' : '') + (n ? ' has-jobs' : '') + (hol ? ' bankhol' : '') + '" ' +
+        (hol ? 'title="' + esc(hol) + ' — bank holiday" ' : '') +
+        'data-act="pick-day" data-date="' + iso + '">' +
+        '<div class="dc-dow">' + ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'][i] + (hol ? ' 🏖' : '') + '</div>' +
+        '<div class="dc-date">' + d.getDate() + '</div>' +
+        '<div class="dc-count">' + (n ? n + ' job' + (n === 1 ? '' : 's') : '·') + '</div>' +
+      '</div>';
+    }
+    document.getElementById('dayStrip').innerHTML = html;
+  }
+
+  function typeClass(j) {
+    var t = String(j.dispatchType || '').toLowerCase();
+    if (t.indexOf('install') > -1)  return 'it-install';
+    if (t.indexOf('team') > -1)     return 'it-team';
+    if (t.indexOf('andy') > -1)     return 'it-andy';
+    if (t.indexOf('courier') > -1)  return 'it-courier';
+    if (t.indexOf('collect') > -1)  return 'it-collection';
+    return 'it-install';
+  }
+
+  function visibleJobs(dateIso) {
+    var list = days[dateIso] || [];
+    return teamOnly ? list.filter(function (j) { return j.isCrewRoute; }) : list;
+  }
+
+  function renderDay() {
+    var jobs = visibleJobs(selectedDate);
+    var dayVisits = visits[selectedDate] || [];
+    var routeJobs = jobs.filter(function (j) { return j.isCrewRoute; });
+    var otherJobs = jobs.filter(function (j) { return !j.isCrewRoute; });
+    var hol = (CFG.bankHolidays || {})[selectedDate];
+
+    var html = '<div class="day-title">' + esc(App.fmtDateFull(selectedDate)) +
+      (hol ? ' <span class="hol-tag">🏖 ' + esc(hol) + '</span>' : '') + '</div>';
+
+    if (!jobs.length && !dayVisits.length) {
+      html += '<div class="inst-empty">Nothing scheduled this day' +
+        (teamOnly && (days[selectedDate] || []).length ? ' for the team — tap "Team jobs only" to see courier/other deliveries' : '') + '.</div>';
+      document.getElementById('main').innerHTML = html;
+      return;
+    }
+
+    if (routeJobs.length) {
+      html += '<div class="route-card">🏭 Workshop';
+      routeJobs.forEach(function (j) {
+        html += ' <span class="route-leg">— ' + fmtLeg(j.legMins) + ' →</span> ' +
+          '<strong>' + esc(shortName(j)) + '</strong>';
+      });
+      var back = routeJobs[routeJobs.length - 1].returnLegMins;
+      html += ' <span class="route-leg">— ' + fmtLeg(back) + ' →</span> 🏭</div>';
+    }
+
+    routeJobs.forEach(function (j, i) { html += buildJobCard(j, i, routeJobs.length); });
+
+    if (dayVisits.length) {
+      html += '<div class="sub-hdr">📋 Visits (surveys & amendments)</div>';
+      dayVisits.forEach(function (v) { html += buildVisitCard(v); });
+    }
+    if (otherJobs.length) {
+      html += '<div class="sub-hdr">🚚 Also going out today (courier / Andy / collection)</div>';
+      otherJobs.forEach(function (j) { html += buildJobCard(j, -1, 0); });
+    }
+    document.getElementById('main').innerHTML = html;
+  }
+
+  function shortName(j) {
+    return (j.name || j.jobRef || j.id).split(' - ').slice(0, 2).join(' - ');
+  }
+
+  function fmtLeg(mins) {
+    if (mins === null || mins === undefined) return '?';
+    return mins >= 60 ? Math.floor(mins / 60) + 'h' + (mins % 60 ? (mins % 60) + 'm' : '') : mins + ' min';
+  }
+
+  function buildJobCard(j, i, routeLen) {
+    var inRoute = i >= 0;
+    var addOns = [];
+    if (j.extras) {
+      if (j.extras.securityPack)   addOns.push('Security Pack');
+      if (j.extras.biFolds)        addOns.push('Bi-folds');
+      if (j.extras.greenRoof)      addOns.push('Green Roof');
+      if (j.extras.joiningPanel)   addOns.push('Joining Panel');
+      if (j.extras.storageHooks)   addOns.push('Storage Hooks');
+      if (j.extras.endShelves)     addOns.push('End Shelves');
+      if (j.extras.recyclingShelf) addOns.push('Recycling Shelf');
+      if (j.extras.steadyracks)    addOns.push('Steadyracks');
+      if (j.extras.additionalStorage) addOns.push('Additional Storage: ' + j.extras.additionalStorage);
+    }
+    var siteBits = [];
+    if (j.site) {
+      if (j.site.level)       siteBits.push('<strong>Site level?</strong> ' + esc(j.site.level));
+      if (j.site.parking)     siteBits.push('<strong>Parking:</strong> ' + esc(j.site.parking));
+      if (j.site.supplyType)  siteBits.push('<strong>Supply:</strong> ' + esc(j.site.supplyType));
+      if (j.site.accessNotes) siteBits.push('<strong>Access:</strong> ' + esc(stripHtml(j.site.accessNotes)));
+    }
+    var rep = j.report;
+
+    return '<div class="inst-card ' + typeClass(j) + '">' +
+      '<div class="ic-hdr">' +
+        (inRoute ? '<span class="ic-order">' + (i + 1) + '</span>' : '<span class="ic-order it-dim">·</span>') +
+        '<span class="ic-name">' + esc(j.name || j.jobRef) + '</span>' +
+        (inRoute && routeLen > 1 ?
+          '<span class="ord-btns">' +
+            '<button class="ord-btn" data-act="move-stop" data-id="' + esc(j.id) + '" data-dir="-1"' + (i === 0 ? ' disabled' : '') + '>▲</button>' +
+            '<button class="ord-btn" data-act="move-stop" data-id="' + esc(j.id) + '" data-dir="1"' + (i === routeLen - 1 ? ' disabled' : '') + '>▼</button>' +
+          '</span>' : '') +
+        '<span class="status-pill status-' + esc(j.dispatchStatus) + '">' + esc(j.dispatchStatus) + '</span>' +
+      '</div>' +
+      '<div class="ic-sub">' + esc([j.shedTypeCustomer || j.shedType, j.finish, j.dispatchType].filter(Boolean).join(' · ')) + '</div>' +
+      '<div class="ic-row">📍 ' + esc(j.address || j.postCode || 'no address') +
+        (j.mapsUrl ? ' <a class="ic-btn" href="' + esc(j.mapsUrl) + '" target="_blank" rel="noopener">🗺 Directions</a>' : '') +
+      '</div>' +
+      ((j.contactName || j.contactPhone) ?
+        '<div class="ic-row">👤 ' + esc(j.contactName || 'Client') +
+          (j.contactPhone ? ' <a class="ic-btn" href="tel:' + esc(j.contactPhone) + '">📞 ' + esc(j.contactPhone) + '</a>' : '') +
+          (j.siteContactPhone && j.siteContactPhone !== j.contactPhone
+            ? ' <a class="ic-btn" href="tel:' + esc(j.siteContactPhone) + '">📞 site: ' + esc(j.siteContactPhone) + '</a>' : '') +
+        '</div>' : '') +
+      (siteBits.length ? '<div class="ic-site">' + siteBits.join('<br>') + '</div>' : '') +
+      (addOns.length ? '<div class="ic-row">📦 ' + esc(addOns.join(' · ')) + '</div>' : '') +
+      (j.extras && j.extras.additionalNotes
+        ? '<div class="ic-site">📝 <strong>Requirements:</strong> ' + esc(stripHtml(j.extras.additionalNotes)) + '</div>' : '') +
+      '<div class="ic-actions">' +
+        (j.projectFolder
+          ? '<a class="ic-btn big" href="' + esc(j.projectFolder) + '" target="_blank" rel="noopener">📁 Project folder (drawings & photos)</a>'
+          : '<span class="ic-nofolder">No project folder link on the deal</span>') +
+        (inRoute ?
+          '<button class="ic-btn big' + (rep ? ' done' : ' due') + '" data-act="report" data-id="' + esc(j.id) + '">' +
+            (rep ? '✓ Report submitted — view/edit' : '📝 Job report (required)') + '</button>' : '') +
+      '</div>' +
+      (rep && rep.reworkRequired ? '<div class="ic-rework">🔧 Rework flagged: ' + esc(rep.reworkDetails || '') + '</div>' : '') +
+    '</div>';
+  }
+
+  function buildVisitCard(v) {
+    var isSurvey = v.type === 'survey';
+    return '<div class="inst-card it-visit' + (isSurvey ? ' it-survey' : '') + '">' +
+      '<div class="ic-hdr">' +
+        '<span class="ic-order it-dim">' + (isSurvey ? '📋' : '🔧') + '</span>' +
+        '<span class="ic-name">' + esc(v.subject) + '</span>' +
+        '<span class="amend-pill">' + (isSurvey ? 'SURVEY' : 'AMEND') + '</span>' +
+      '</div>' +
+      '<div class="ic-sub">' + esc([v.dealName, v.stageLabel].filter(Boolean).join(' · ')) + '</div>' +
+      '<div class="ic-row">📍 ' + esc(v.postCode || 'no postcode') +
+        (v.mapsUrl ? ' <a class="ic-btn" href="' + esc(v.mapsUrl) + '" target="_blank" rel="noopener">🗺 Directions</a>' : '') +
+      '</div>' +
+      (v.originalDispatchDate ? '<div class="ic-row">🚚 Originally dispatched ' + esc(App.fmtDayMonth(v.originalDispatchDate)) + '</div>' : '') +
+    '</div>';
+  }
+
+  function stripHtml(s) {
+    var txt = String(s || '').replace(/<[^>]*>/g, ' ');
+    var ta = document.createElement('textarea');
+    ta.innerHTML = txt;
+    return ta.value.replace(/\s+/g, ' ').trim();
+  }
+
+  // ── Manual stop reordering (route recomputes live) ─────────
+  function estimateDriveMinsClient(a, b) {
+    if (!a || !b) return null;
+    var R = 6371, rad = Math.PI / 180;
+    var dLat = (b.lat - a.lat) * rad, dLng = (b.lng - a.lng) * rad;
+    var s = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos(a.lat * rad) * Math.cos(b.lat * rad) * Math.sin(dLng / 2) * Math.sin(dLng / 2);
+    var straight = 2 * R * Math.atan2(Math.sqrt(s), Math.sqrt(1 - s));
+    if (straight < 0.05) return 0;
+    var P = routeParams;
+    var speed = straight > 50 ? P.speedKmhLong : straight > 15 ? P.speedKmhMid : P.speedKmhShort;
+    return Math.round((straight * P.routeFactor) / speed * 60);
+  }
+
+  function recomputeLegs(dateIso) {
+    if (!routeParams) return;
+    var list = days[dateIso] || [];
+    var prev = routeParams.workshop;
+    list.forEach(function (j) {
+      if (!j.isCrewRoute) { j.legMins = null; return; }
+      j.legMins = j.coords ? estimateDriveMinsClient(prev, j.coords) : null;
+      j.returnLegMins = undefined;
+      if (j.coords) prev = j.coords;
+    });
+    var route = list.filter(function (j) { return j.isCrewRoute; });
+    if (route.length && route[route.length - 1].coords) {
+      route[route.length - 1].returnLegMins =
+        estimateDriveMinsClient(route[route.length - 1].coords, routeParams.workshop);
+    }
+  }
+
+  function moveStop(id, dir) {
+    var list = days[selectedDate] || [];
+    var route = list.filter(function (j) { return j.isCrewRoute; });
+    var rest = list.filter(function (j) { return !j.isCrewRoute; });
+    var idx = -1;
+    route.forEach(function (j, i) { if (j.id === id) idx = i; });
+    var to = idx + dir;
+    if (idx < 0 || to < 0 || to >= route.length) return;
+    var moved = route.splice(idx, 1)[0];
+    route.splice(to, 0, moved);
+    days[selectedDate] = route.concat(rest);
+    recomputeLegs(selectedDate);
+    render();
+    // Save the order for everyone (debounced — arrows get tapped in bursts)
+    clearTimeout(orderSaveTimer);
+    orderSaveTimer = setTimeout(function () {
+      App.run('saveRouteOrder', [route.map(function (j) { return j.id; })], {});
+    }, 1200);
+  }
+
+  // ── Job report ─────────────────────────────────────────────
+  function jobById(id) {
+    var hit = null;
+    Object.keys(days).forEach(function (d) {
+      days[d].forEach(function (j) { if (j.id === id) hit = j; });
+    });
+    return hit;
+  }
+
+  function openReport(id) {
+    var j = jobById(id);
+    if (!j) return;
+    reportingId = id;
+    var r = j.report || {};
+    document.getElementById('reportTitle').textContent = 'Job report — ' + (j.name || id);
+    document.getElementById('repArrival').value = r.arrivalTime || '';
+    document.getElementById('repTaken').value = r.timeTakenHrs || '';
+    document.getElementById('repQc4Pass').checked = !!r.submittedAt && r.qc4Pass;
+    document.getElementById('repQc4Fail').checked = !!r.submittedAt && !r.qc4Pass;
+    document.getElementById('repQc4Faults').value = r.qc4Faults || '';
+    document.getElementById('repQc4Faults').style.display = (document.getElementById('repQc4Fail').checked) ? '' : 'none';
+    document.getElementById('repRework').checked = !!r.reworkRequired;
+    document.getElementById('repReworkDetails').value = r.reworkDetails || '';
+    document.getElementById('repReworkDetails').style.display = r.reworkRequired ? '' : 'none';
+    document.getElementById('repNotes').value = r.notes || '';
+    document.getElementById('reportModal').classList.add('show');
+  }
+
+  function closeReport() {
+    reportingId = null;
+    document.getElementById('reportModal').classList.remove('show');
+  }
+
+  function submitReport() {
+    var id = reportingId;
+    var j = jobById(id);
+    if (!j) { closeReport(); return; }
+
+    var qc4Pass = document.getElementById('repQc4Pass').checked;
+    var qc4Fail = document.getElementById('repQc4Fail').checked;
+    if (!qc4Pass && !qc4Fail) { alert('Please complete QC4 — all good, or issues found.'); return; }
+    var rework = document.getElementById('repRework').checked;
+    var reworkDetails = document.getElementById('repReworkDetails').value.trim();
+    if (rework && !reworkDetails) { alert('Please say what rework is needed — this goes straight to the office.'); return; }
+    if (qc4Fail && !document.getElementById('repQc4Faults').value.trim()) {
+      alert('Please describe the QC4 issues.'); return;
+    }
+
+    var report = {
+      shedName:      j.name || j.jobRef || '',
+      reportDate:    selectedDate,
+      arrivalTime:   document.getElementById('repArrival').value || '',
+      timeTakenHrs:  document.getElementById('repTaken').value || '',
+      qc4Pass:       qc4Pass,
+      qc4Faults:     document.getElementById('repQc4Faults').value.trim(),
+      reworkRequired: rework,
+      reworkDetails: reworkDetails,
+      notes:         document.getElementById('repNotes').value.trim()
+    };
+
+    j.report = {
+      reportDate: report.reportDate, arrivalTime: report.arrivalTime,
+      timeTakenHrs: report.timeTakenHrs, qc4Pass: report.qc4Pass,
+      qc4Faults: report.qc4Faults, reworkRequired: report.reworkRequired,
+      reworkDetails: report.reworkDetails, notes: report.notes, submittedAt: new Date().toISOString()
+    };
+    closeReport();
+    render();
+    App.run('saveInstallReport', [id, report], {
+      ok: function () {
+        App.showBanner('ok', '✓ Report saved' + (report.reworkRequired ? ' — rework email sent to the office' : ''));
+        setTimeout(App.hideBanner, 3500);
+      },
+      rollback: function () { j.report = null; render(); }
+    });
+  }
+
+  // ── Event delegation ───────────────────────────────────────
+  document.addEventListener('click', function (e) {
+    var el = e.target.closest('[data-act]');
+    if (!el) return;
+    switch (el.dataset.act) {
+      case 'pick-day':  selectedDate = el.dataset.date; render(); return;
+      case 'report':    openReport(el.dataset.id); return;
+      case 'move-stop': moveStop(el.dataset.id, parseInt(el.dataset.dir, 10)); return;
+    }
+  });
+  document.addEventListener('change', function (e) {
+    if (e.target.id === 'repQc4Pass' || e.target.id === 'repQc4Fail') {
+      document.getElementById('repQc4Faults').style.display =
+        document.getElementById('repQc4Fail').checked ? '' : 'none';
+    }
+    if (e.target.id === 'repRework') {
+      document.getElementById('repReworkDetails').style.display =
+        e.target.checked ? '' : 'none';
+    }
+  });
+</script>
+</body>
+</html>

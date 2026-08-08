@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>BSC — Reports</title>
+  <script>window.APP_BASE_URL = <?!= JSON.stringify(ScriptApp.getService().getUrl()) ?>;</script>
+  <?!= include('Shared'); ?>
+  <?!= include('ReportsStyles'); ?>
+</head>
+<body>
+
+<div class="header">
+  <h1>Reports</h1>
+  <div class="header-sep"></div>
+  <div class="header-meta" id="hdrMeta">Loading…</div>
+  <div id="viewNav"></div>
+  <button class="hbtn" onclick="window.print()" title="Print this page">🖨</button>
+  <button class="hbtn" onclick="openHelp()" title="How these numbers are calculated">?</button>
+  <button class="hbtn" id="btnRefresh" onclick="doRefresh()">⟳ Refresh</button>
+</div>
+
+<div class="banner" id="banner"></div>
+
+<div id="main" class="rep-main">
+  <div class="loading-wrap"><div class="spinner"></div><div>Crunching the numbers…</div></div>
+</div>
+
+<div class="modal-bg" id="helpModal">
+  <div class="modal-box" style="max-width:520px">
+    <div class="modal-title">How these numbers work</div>
+    <div style="font-size:14px;line-height:1.6">
+      <div style="margin-bottom:8px"><strong>Produced £</strong> — every stage tick "earns" its share of the job's product value (DRAFT hour-share weights, Steve + Dan to review). Product value = HubSpot shed value, or derived from the deal's line items (net of VAT, dispatch lines excluded) for single-shed deals.</div>
+      <div style="margin-bottom:8px"><strong>Combined £</strong> — produced + dispatch service value (added at reporting; no separate install-crew target, per the board's decision).</div>
+      <div style="margin-bottom:8px"><strong>Rev/sold hr</strong> = produced ÷ estimated hours of the work done (pricing lens). <strong>Rev/paid hr</strong> = value ÷ paid hours (workshop: 9 × 8h × workdays − leave; combined adds the install crew's 82 hrs/wk). <strong>Utilisation</strong> = sold hours ÷ paid hours.</div>
+      <div><strong>Coverage warnings</strong> matter: jobs without a value or hours estimate earn £0/0h here — fix the data, not the formula.</div>
+    </div>
+    <div class="modal-btns"><button class="btn-pri" onclick="closeHelp()">Got it</button></div>
+  </div>
+</div>
+
+<script>
+  var R = null;
+  var period = 'weeks';
+  var esc = App.esc;
+
+  window.addEventListener('load', function () {
+    document.getElementById('viewNav').innerHTML = App.viewNav('reports');
+    loadData(false);
+  });
+
+  function loadData(force) {
+    App.run('getReportsData', [force], {
+      ok: function (result) {
+        R = result;
+        App.hideBanner();
+        document.getElementById('hdrMeta').textContent =
+          R.coverage.liveJobs + ' live jobs · updated ' + App.fmtTime(new Date(R.timestamp));
+        render();
+      },
+      err: function (e) { App.showBanner('error', '⚠ Failed to load: ' + e.message); }
+    });
+  }
+
+  function doRefresh() {
+    var btn = document.getElementById('btnRefresh');
+    btn.disabled = true;
+    App.run('invalidateLiveCache', [], {
+      ok: function () { loadData(true); btn.disabled = false; },
+      err: function () { btn.disabled = false; }
+    });
+  }
+
+  function openHelp()  { document.getElementById('helpModal').classList.add('show'); }
+  function closeHelp() { document.getElementById('helpModal').classList.remove('show'); }
+
+  function money(n) { return n === null || n === undefined ? '—' : '£' + Number(n).toLocaleString('en-GB'); }
+  function rate(n, target) {
+    if (n === null || n === undefined) return '<span class="dim">—</span>';
+    var cls = target ? (n >= target ? 'good' : (n >= target * 0.85 ? 'warn' : 'bad')) : '';
+    return '<span class="rate ' + cls + '">£' + n + '/hr</span>';
+  }
+
+  function render() {
+    var tw = R.thisWeek, T = R.targets;
+    var html = '';
+
+    // Coverage warnings first — bad data makes every number below a lie
+    var cov = R.coverage, warns = [];
+    if (!cov.lineItemsOk) warns.push('⚠ Line items unreadable (' + esc(cov.lineItemsError) + ') — grant the token crm.objects.line_items.read in the HubSpot Private App.');
+    if (cov.missingValue) warns.push('⚠ ' + cov.missingValue + ' of ' + cov.liveJobs + ' live jobs have NO product value (earn £0 here): ' + esc(cov.missingValueSample.join(', ')) + (cov.missingValue > 8 ? '…' : ''));
+    if (cov.multiShedReview.length) warns.push('🔎 Multi-shed deals needing a manual shed_value: ' + esc(cov.multiShedReview.join(', ')));
+    if (cov.noHours) warns.push('⏱ ' + cov.noHours + ' jobs have no hours estimate (bespokes without estimated_build_hours): ' + esc(cov.noHoursSample.join(', ')) + (cov.noHours > 8 ? '…' : ''));
+    if (R.weightsDraft) warns.push('📝 Stage weights are the DRAFT set — Steve + Dan to review (Config.gs STAGE_HOUR_WEIGHTS).');
+    if (warns.length) html += '<div class="cov-box">' + warns.map(function (w) { return '<div>' + w + '</div>'; }).join('') + '</div>';
+
+    // This-week cards
+    html += '<div class="cards">' +
+      card('Produced this week', money(tw.produced), tw.soldHrs + ' sold hrs') +
+      card('+ Dispatch service', money(tw.dispatchSvc), tw.jobsOut + ' jobs out') +
+      card('Combined value', money(tw.combined), 'product + dispatch') +
+      card('Rev / sold hr', rate(tw.revSoldHr, null), 'pricing lens') +
+      card('Rev / paid hr — workshop', rate(tw.revPaidWs, T.workshopPerHr), 'target £' + T.workshopPerHr) +
+      card('Rev / paid hr — combined', rate(tw.revPaidComb, T.combinedPerHr), 'target £' + T.combinedPerHr) +
+      card('Utilisation', tw.utilisation === null ? '—' : tw.utilisation + '%', 'sold ÷ paid hours') +
+      card('Dispatched value', money(tw.dispatchedProduct), 'product £ shipped') +
+    '</div>';
+
+    // Period table
+    html += '<div class="tabs">' +
+      ['days', 'weeks', 'months'].map(function (p) {
+        return '<button class="tab' + (p === period ? ' active' : '') + '" data-act="period" data-p="' + p + '">' +
+          p.charAt(0).toUpperCase() + p.slice(1) + '</button>';
+      }).join('') + '</div>';
+
+    var rows = R[period];
+    html += '<div class="tbl-wrap"><table><tr>' +
+      '<th>' + (period === 'days' ? 'Day' : period === 'weeks' ? 'Week' : 'Month') + '</th>' +
+      '<th>Produced</th><th>Dispatch svc</th><th>Combined</th><th>Dispatched £</th>' +
+      '<th>Sold hrs</th><th>Paid hrs</th><th>Rev/sold</th><th>Rev/paid WS</th><th>Rev/paid comb</th><th>Util</th></tr>' +
+      rows.map(function (r) {
+        return '<tr>' +
+          '<td>' + esc(r.label) + '</td>' +
+          '<td>' + money(r.produced) + '</td>' +
+          '<td>' + money(r.dispatchSvc) + '</td>' +
+          '<td><strong>' + money(r.combined) + '</strong></td>' +
+          '<td>' + money(r.dispatchedProduct) + '</td>' +
+          '<td>' + r.soldHrs + '</td>' +
+          '<td>' + r.paidWs + (period !== 'days' ? ' / ' + r.paidComb : '') + '</td>' +
+          '<td>' + rate(r.revSoldHr, null) + '</td>' +
+          '<td>' + rate(r.revPaidWs, T.workshopPerHr) + '</td>' +
+          '<td>' + rate(r.revPaidComb, T.combinedPerHr) + '</td>' +
+          '<td>' + (r.utilisation === null ? '—' : r.utilisation + '%') + '</td>' +
+        '</tr>';
+      }).join('') + '</table></div>';
+
+    // Per-person (last 28 days)
+    html += '<div class="sec-title">By person — last 28 days (from Steve\'s name-taps; builds up as ticks accumulate)</div>';
+    if (!R.perWorker.length) {
+      html += '<div class="dim" style="padding:8px 2px">No name-tagged stage ticks yet — they start counting from today.</div>';
+    } else {
+      html += '<div class="tbl-wrap"><table><tr><th>Person</th><th>Stages done</th><th>Earned £</th><th>Earned hrs</th></tr>' +
+        R.perWorker.map(function (p) {
+          return '<tr><td>' + esc(p.name) + '</td><td>' + p.stages + '</td><td>' + money(p.val) + '</td><td>' + p.hrs + '</td></tr>';
+        }).join('') + '</table></div>';
+    }
+
+    document.getElementById('main').innerHTML = html;
+  }
+
+  function card(label, big, sub) {
+    return '<div class="card"><div class="c-label">' + label + '</div>' +
+      '<div class="c-big">' + big + '</div><div class="c-sub">' + esc(sub) + '</div></div>';
+  }
+
+  document.addEventListener('click', function (e) {
+    var el = e.target.closest('[data-act="period"]');
+    if (el) { period = el.dataset.p; render(); }
+  });
+</script>
+</body>
+</html>

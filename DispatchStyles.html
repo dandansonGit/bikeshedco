@@ -1,0 +1,254 @@
+<!-- Styles for Dispatch.html - split out so style edits touch a small file.
+     Pulled in by the view's DispatchStyles include. NEVER write the include
+     scriptlet syntax literally in this file (even in a comment) - Apps Script
+     evaluates scriptlets inside comments, which would self-include forever. -->
+<style>
+    body { min-width: 1200px; overflow-x: auto; }
+
+    .search-strip {
+      background: #fff; border-bottom: 1px solid #ddd; padding: 6px 14px;
+      display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-height: 44px;
+    }
+    .search-input {
+      border: 1px solid #ccc; border-radius: 6px; padding: 5px 10px;
+      font-size: 13px; width: 220px; outline: none;
+    }
+    .search-input:focus { border-color: #2d5a27; box-shadow: 0 0 0 2px rgba(45,90,39,0.15); }
+    .chip {
+      border: 1px solid #ccc; border-radius: 14px; padding: 4px 12px;
+      font-size: 12px; background: #fff; cursor: pointer; color: #555; white-space: nowrap;
+    }
+    .chip:hover { background: #f0f0f0; }
+    .chip.active { background: #2d5a27; color: #fff; border-color: #2d5a27; }
+    .search-count { font-size: 12px; color: #888; }
+
+    /* Filter-strip grouping: order chips vs violet visit chips */
+    .chip-group-label {
+      font-size: 10px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 0.5px; color: #999;
+    }
+    .chip-divider { width: 1px; height: 22px; background: #ddd; margin: 0 6px; }
+    .chip-visit { border-color: #b39ddb; color: #6a3fc4; }
+    .chip-visit:hover { background: #f3effc; }
+    .chip-visit.active { background: #6a3fc4; border-color: #6a3fc4; color: #fff; }
+
+    /* A visit filter is on: order cards recede so the violet markers pop
+       (hover restores a card for reading; visits-focus is set on <body>) */
+    body.visits-focus .deal-card { opacity: 0.4; }
+    body.visits-focus .deal-card:hover { opacity: 1; }
+
+    .workspace { display: flex; height: calc(100vh - 96px); overflow: hidden; }
+
+    /* Tray */
+    .sidebar {
+      width: 270px; min-width: 270px; background: #fff; border-right: 1px solid #ddd;
+      display: flex; flex-direction: column; overflow: hidden;
+    }
+    .sidebar-hdr {
+      padding: 10px 12px 8px; font-weight: 700; font-size: 13px; color: #444;
+      border-bottom: 1px solid #eee; background: #f8f9f8; flex-shrink: 0;
+      display: flex; align-items: center; gap: 6px;
+    }
+    .sidebar-hdr .count { background: #e5e5e5; color: #555; border-radius: 10px; padding: 1px 7px; font-size: 12px; }
+    .sidebar-body { flex: 1; overflow-y: auto; padding: 8px; }
+    .sidebar-body.drag-over { background: #eaf4e8; }
+    .sidebar-empty { padding: 20px 10px; text-align: center; color: #aaa; font-size: 13px; }
+
+    .board-wrap { flex: 1; overflow-x: auto; overflow-y: hidden; }
+    .board { display: flex; gap: 10px; padding: 12px; height: 100%; min-width: max-content; }
+
+    /* Week columns with day slots */
+    .week-col {
+      width: 280px; min-width: 280px; display: flex; flex-direction: column;
+      background: #f4f6f4; border-radius: 10px; overflow: hidden;
+    }
+    .week-hdr {
+      padding: 9px 12px; background: #fff; border-bottom: 1px solid #e0e0e0; flex-shrink: 0;
+      cursor: pointer;
+    }
+    .week-hdr:hover { background: #f5faf4; }
+    .week-title { font-weight: 700; font-size: 14px; display: flex; align-items: center; gap: 6px; }
+    .week-value { font-weight: 700; color: #2d5a27; font-size: 12px; margin-left: auto; }
+    .week-expand { color: #aaa; font-size: 12px; }
+    .week-sub { font-size: 11px; color: #777; margin-top: 1px; }
+    .week-body { flex: 1; overflow-y: auto; padding: 6px; }
+    .day-slot {
+      background: #fff; border: 1px dashed #d5d5d5; border-radius: 7px;
+      min-height: 44px; margin-bottom: 6px; padding: 4px 6px 5px;
+    }
+    .day-slot.drag-over { border: 2px solid #2d5a27; background: #eaf4e8; }
+    .day-slot-label {
+      font-size: 11px; font-weight: 700; color: #999; margin-bottom: 3px;
+      display: flex; align-items: center; gap: 4px;
+    }
+    .day-slot-label .day-val { margin-left: auto; }
+    .day-slot.today .day-slot-label { color: #2d5a27; }
+    .day-val { font-weight: 700; color: #2d5a27; font-size: 11px; }
+
+    /* UK bank holidays — never worked; shaded so planning can't miss them */
+    .day-slot.bankhol, .fday-col.bankhol {
+      background: repeating-linear-gradient(45deg, #fdf6e7, #fdf6e7 8px, #f6ecd6 8px, #f6ecd6 16px);
+      border-color: #dbc48f;
+    }
+    .fday-col.bankhol .fday-cards, .fday-col.bankhol .fday-notes { background: transparent; }
+    .hol-tag {
+      font-size: 10px; font-weight: 700; color: #9c6f00; background: #fff3cd;
+      border-radius: 3px; padding: 0 5px; white-space: nowrap;
+      overflow: hidden; text-overflow: ellipsis; max-width: 120px;
+    }
+    .fday-hours {
+      padding: 4px 10px; font-size: 11px; font-weight: 700; color: #555;
+      background: #f4f6f4; border-bottom: 1px solid #eee; flex-shrink: 0;
+    }
+
+    /* Busy weeks widen: 2 cards per row (3+ on a day), 3 per row (5+) */
+    .week-col.busy { width: 540px; min-width: 540px; }
+    .week-col.busy.busy3 { width: 760px; min-width: 760px; }
+    .week-col.busy .day-slot {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 4px 6px; align-items: start;
+    }
+    .week-col.busy.busy3 .day-slot { grid-template-columns: 1fr 1fr 1fr; }
+    .week-col.busy .day-slot .day-slot-label { grid-column: 1 / -1; margin-bottom: 0; }
+    .week-col.busy .deal-card, .week-col.busy .amend-card { margin-bottom: 0; }
+
+    /* Expanded single-week day view */
+    .week-focus {
+      flex: 1; min-width: 0; display: flex; flex-direction: column;
+      background: #f4f6f4; border-radius: 10px; overflow: hidden;
+    }
+    .wf-hdr {
+      display: flex; align-items: center; gap: 12px; padding: 10px 14px;
+      background: #fff; border-bottom: 1px solid #e0e0e0; flex-shrink: 0;
+    }
+    .wf-hdr .hbtn { border-color: #ccc; color: #444; }
+    .wf-title { font-weight: 700; font-size: 15px; }
+    .wf-value { margin-left: auto; font-weight: 700; color: #2d5a27; }
+    .wf-days { flex: 1; display: flex; gap: 10px; padding: 10px; overflow-x: auto; }
+    .fday-col {
+      flex: 1; min-width: 210px; display: flex; flex-direction: column;
+      background: #fff; border: 1px dashed #d5d5d5; border-radius: 8px; overflow: hidden;
+    }
+    .fday-col.today { border: 1px solid #2d5a27; }
+    .fday-hdr {
+      padding: 7px 10px; font-size: 12px; font-weight: 700; color: #666;
+      border-bottom: 1px solid #eee; display: flex; align-items: center; gap: 4px;
+      flex-shrink: 0;
+    }
+    .fday-hdr .day-val { margin-left: auto; }
+    .fday-col.today .fday-hdr { color: #2d5a27; }
+    .fday-cards { flex: 1; overflow-y: auto; padding: 6px; min-height: 60px; }
+    .fday-cards.drag-over { background: #eaf4e8; outline: 2px solid #2d5a27; outline-offset: -2px; }
+    .fday-notes {
+      border: none; border-top: 1px solid #eee; resize: none; padding: 7px 10px;
+      font-size: 12px; font-family: inherit; height: 62px; outline: none;
+      background: #fbfbf7; flex-shrink: 0;
+    }
+    .fday-notes:focus { background: #fff; box-shadow: inset 0 2px 0 #2d5a27; }
+
+    /* Deal cards */
+    .deal-card {
+      background: #fff; border-radius: 7px; margin-bottom: 5px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.12); border-left: 4px solid #78909c;
+      cursor: grab; user-select: none; padding: 7px 9px; position: relative;
+    }
+    .deal-card:active { cursor: grabbing; }
+    .deal-card.dragging { opacity: 0.45; }
+    .deal-card.st-draft     { border-left-color: #78909c; }
+    .deal-card.st-proposed  { border-left-color: #f9a825; }
+    .deal-card.st-confirmed { border-left-color: #2d5a27; cursor: default; }
+    .deal-card.hs-locked { cursor: default; }
+    .deal-card.st-confirmed::after, .deal-card.hs-locked::after {
+      content: '🔒'; position: absolute; top: 4px; right: 6px; font-size: 11px;
+    }
+    /* Penalty window: the card's lock turns red (rare — keep it quiet).
+       The emoji can't be recoloured directly, so tint it via filter. */
+    .deal-card.in-penalty::after {
+      content: '🔒'; position: absolute; top: 4px; right: 6px; font-size: 11px;
+      filter: hue-rotate(-45deg) saturate(6) brightness(0.95);
+    }
+    .solo-chip {
+      font-size: 9px; font-weight: 700; background: #fff3e0; color: #e65100;
+      border-radius: 3px; padding: 1px 5px;
+    }
+    .route-line { font-size: 12px; line-height: 1.7; margin: 6px 0; }
+    .route-leg { color: #888; font-size: 11px; }
+    .van-meter { display: inline-block; font-size: 11px; font-weight: 700; padding: 2px 7px; border-radius: 4px; background: #e8f5e3; color: #2d5a27; }
+    .van-meter.full { background: #fff3cd; color: #8a5e00; }
+    .sugg-warn { font-size: 12px; color: #b71c1c; font-weight: 600; margin-top: 4px; }
+    .deal-card.out-of-window { outline: 2px solid #e53935; }
+    /* Card tint by dispatch type: installs white, deliveries blue,
+       courier amber, collection grey (visits stay violet dashed).
+       Strengthened 2026-07-16 — first pass was too subtle. */
+    .deal-card.dt-delivery   { background: #d9ebfb; }
+    .deal-card.dt-courier    { background: #ffeecb; }
+    .deal-card.dt-collection { background: #e3e6ea; }
+    /* Join suggestions (adding drafts to an agreed day) */
+    .sugg-group.sugg-join { border-left: 4px solid #2d5a27; }
+    .sugg-existing { color: #777; font-weight: 700; }
+    .deal-ref { font-weight: 700; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-right: 14px; }
+    .deal-row { display: flex; align-items: center; gap: 5px; margin-top: 4px; flex-wrap: wrap; }
+    .area-badge {
+      font-size: 11px; font-weight: 700; background: #e3f2fd; color: #0d47a1;
+      border-radius: 4px; padding: 1px 6px; white-space: nowrap;
+    }
+    .warn-chip {
+      font-size: 10px; font-weight: 700; background: #fce4e4; color: #b71c1c;
+      border-radius: 4px; padding: 1px 6px;
+    }
+    .finish-chip {
+      font-size: 10px; background: #f0f0f0; color: #555; border-radius: 4px; padding: 1px 6px;
+    }
+    .shed-count { font-size: 11px; color: #888; }
+    .win-note { font-size: 10px; color: #e53935; font-weight: 700; margin-top: 3px; }
+    .type-chip { font-size: 10px; font-weight: 700; border-radius: 4px; padding: 1px 5px; background: #ede7f6; color: #4527a0; }
+
+    /* Dispatched history cards (read-only look-back on past weeks) */
+    .deal-card.dc-history {
+      opacity: 0.8; background: #f4f6f4; border-left: 4px solid #9e9e9e;
+      cursor: default;
+    }
+    .status-pill.status-dispatched { background: #e8f5e3; color: #2d5a27; }
+
+    /* Amendment / survey visit markers (read-only — dates live in HubSpot) */
+    .amend-card {
+      background: #faf9ff; border: 1px dashed #b39ddb; border-left: 4px solid #6a3fc4;
+      border-radius: 7px; margin-bottom: 5px; padding: 6px 8px; cursor: pointer;
+    }
+    .amend-card:hover { background: #f3effc; }
+    .amend-card.t-survey { border-left-color: #0288d1; }
+    .amend-ref { font-weight: 700; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .amend-badge { font-size: 9px; font-weight: 700; border-radius: 3px; padding: 1px 5px; letter-spacing: 0.3px; }
+    .ab-survey { background: #e1f5fe; color: #01579b; }
+    .ab-amend  { background: #ede7f6; color: #4527a0; }
+    .amend-meta { font-size: 10px; color: #777; margin-top: 3px; }
+    .amend-divider {
+      font-size: 11px; font-weight: 700; color: #6a3fc4;
+      border-top: 2px solid #d1c4e9; margin: 12px 0 6px; padding-top: 8px;
+      text-transform: uppercase; letter-spacing: 0.3px;
+    }
+
+    /* Suggestions panel */
+    .sugg-panel {
+      position: fixed; top: 52px; right: -560px; width: 540px;
+      height: calc(100vh - 52px); background: #fff;
+      box-shadow: -4px 0 20px rgba(0,0,0,0.15); transition: right 0.25s ease;
+      z-index: 150; display: flex; flex-direction: column; overflow: hidden;
+    }
+    .sugg-panel.open { right: 0; }
+    .sugg-hdr {
+      background: #2d5a27; color: #fff; padding: 12px 16px;
+      display: flex; align-items: center; justify-content: space-between; flex-shrink: 0;
+    }
+    .sugg-title { font-weight: 700; font-size: 15px; }
+    .sugg-close { background: none; border: none; color: #fff; font-size: 20px; cursor: pointer; line-height: 1; }
+    .sugg-body { flex: 1; overflow-y: auto; padding: 12px; }
+    .sugg-group {
+      background: #f8f9f8; border: 1px solid #e0e0e0; border-radius: 9px;
+      padding: 12px; margin-bottom: 10px;
+    }
+    .sugg-group-hdr { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+    .sugg-group-title { font-weight: 700; font-size: 14px; flex: 1; }
+    .sugg-meta { font-size: 12px; color: #666; margin-bottom: 8px; display: flex; gap: 12px; flex-wrap: wrap; }
+    .sugg-deal { font-size: 13px; padding: 3px 0; display: flex; gap: 8px; align-items: center; }
+    .sugg-note { font-size: 12px; color: #999; padding: 8px 0; }
+  </style>

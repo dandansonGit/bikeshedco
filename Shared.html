@@ -1,0 +1,486 @@
+<!-- ============================================================
+  BSC Production Hub — shared styles + JS utilities
+  Included by every view via the include('Shared') scriptlet.
+  (Never write the scriptlet syntax literally in here — see CLAUDE.md.)
+============================================================= -->
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
+    font-size: 14px;
+    background: #eef0ee;
+    color: #1a1a1a;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* ── Header + view switcher ─────────────────────────────── */
+  .header {
+    background: #2d5a27;
+    color: #fff;
+    padding: 0 16px;
+    min-height: 52px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    position: sticky;
+    top: 0;
+    z-index: 200;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+    flex-wrap: wrap;
+  }
+  .header h1 { font-size: 17px; font-weight: 700; white-space: nowrap; }
+  .header-sep  { width: 1px; height: 24px; background: rgba(255,255,255,0.25); }
+  .header-meta { font-size: 12px; opacity: 0.7; flex: 1; min-width: 120px; }
+  .view-nav { display: flex; gap: 2px; }
+  .view-nav a {
+    color: rgba(255,255,255,0.75);
+    text-decoration: none;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 4px 10px;
+    border-radius: 5px;
+  }
+  .view-nav a:hover   { background: rgba(255,255,255,0.12); }
+  .view-nav a.current { background: rgba(255,255,255,0.22); color: #fff; }
+  .hbtn {
+    background: rgba(255,255,255,0.15);
+    color: #fff;
+    border: 1px solid rgba(255,255,255,0.35);
+    border-radius: 6px;
+    padding: 0 12px;
+    height: 34px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .hbtn:hover  { background: rgba(255,255,255,0.25); }
+  .hbtn:active { background: rgba(255,255,255,0.35); }
+  .hbtn:disabled { opacity: 0.45; }
+
+  /* ── Banner ─────────────────────────────────────────────── */
+  .banner {
+    padding: 8px 16px;
+    font-size: 13px;
+    display: none;
+    border-bottom: 1px solid transparent;
+  }
+  .banner.show  { display: block; }
+  .banner.warn  { background: #fff8e1; border-color: #ffc107; color: #7a5800; }
+  .banner.error { background: #fdecea; border-color: #e57373; color: #8b1a1a; }
+  .banner .retry-link { font-weight: 700; text-decoration: underline; cursor: pointer; margin-left: 8px; }
+
+  /* ── Loading ────────────────────────────────────────────── */
+  .loading-wrap {
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    padding: 50px 20px; gap: 14px; color: #777; height: 100%;
+  }
+  .spinner {
+    width: 36px; height: 36px;
+    border: 3px solid #ccc;
+    border-top-color: #2d5a27;
+    border-radius: 50%;
+    animation: spin 0.75s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ── Modal ──────────────────────────────────────────────── */
+  .modal-bg {
+    display: none; position: fixed; inset: 0;
+    background: rgba(0,0,0,0.45); z-index: 300;
+    align-items: center; justify-content: center;
+  }
+  .modal-bg.show { display: flex; }
+  .modal-box {
+    background: #fff; border-radius: 10px; padding: 22px 20px;
+    width: calc(100% - 32px); max-width: 400px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+  }
+  .modal-title { font-weight: 700; font-size: 15px; margin-bottom: 14px; }
+  .modal-sub   { font-size: 13px; color: #555; margin-bottom: 12px; }
+  .modal-btns  { display: flex; gap: 8px; justify-content: flex-end; margin-top: 14px; }
+  .form-row { margin-bottom: 12px; }
+  .form-row label { display: block; font-size: 13px; color: #555; font-weight: 600; margin-bottom: 4px; }
+  .form-row input[type=number], .form-row input[type=text],
+  .form-row input[type=date], .form-row textarea {
+    width: 100%; border: 1px solid #ccc; border-radius: 6px;
+    padding: 8px 10px; font-size: 14px; font-family: inherit;
+  }
+  .form-row textarea { min-height: 70px; resize: vertical; }
+  .btn-pri {
+    background: #2d5a27; color: #fff; border: none;
+    border-radius: 6px; padding: 9px 18px;
+    font-size: 14px; font-weight: 700; cursor: pointer;
+  }
+  .btn-pri:hover { background: #245220; }
+  .btn-pri:disabled { opacity: 0.5; cursor: default; }
+  .btn-sec {
+    background: #f0f0f0; color: #333; border: none;
+    border-radius: 6px; padding: 9px 16px; font-size: 14px; cursor: pointer;
+  }
+  .btn-sec:hover { background: #e4e4e4; }
+  .btn-danger { background: #b71c1c; color: #fff; border: none;
+    border-radius: 6px; padding: 9px 16px; font-size: 14px; font-weight: 700; cursor: pointer; }
+
+  /* ── Test-notes widget (🗒 Notes header button, all views) ── */
+  .fb-note-row {
+    display: flex; gap: 10px; align-items: flex-start;
+    padding: 9px 2px; border-bottom: 1px solid #eee; font-size: 13px;
+  }
+  .fb-note-meta { font-size: 11px; color: #999; white-space: nowrap; padding-top: 1px; }
+  .fb-note-view {
+    font-size: 10px; font-weight: 700; text-transform: uppercase;
+    background: #e8f5e3; color: #2d5a27; border-radius: 4px; padding: 1px 5px;
+  }
+  .fb-note-text { flex: 1; white-space: pre-wrap; word-break: break-word; }
+  .fb-done-btn {
+    background: none; border: 1px solid #ccc; border-radius: 5px;
+    color: #2d5a27; font-size: 12px; font-weight: 700;
+    cursor: pointer; padding: 2px 8px; flex-shrink: 0;
+  }
+  .fb-done-btn:hover { background: #e8f5e3; border-color: #2d5a27; }
+  .fb-empty { color: #999; font-size: 13px; padding: 14px 2px; }
+  #fbBtn .fb-count {
+    background: #ffc107; color: #4a3600; border-radius: 9px;
+    font-size: 11px; padding: 0 6px; margin-left: 5px;
+  }
+
+  /* ── Status pills (dispatch flow) ────────────────────────── */
+  .status-pill {
+    font-size: 10px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.4px; padding: 2px 7px; border-radius: 9px;
+  }
+  .status-draft     { background: #eceff1; color: #546e7a; }
+  .status-proposed  { background: #fff3cd; color: #8a5e00; }
+  .status-confirmed { background: #e8f5e3; color: #2d5a27; }
+
+  /* ── Date badges ────────────────────────────────────────── */
+  .date-badge {
+    font-size: 11px; font-weight: 700; padding: 2px 6px;
+    border-radius: 4px; background: #e8f5e3; color: #2d5a27; white-space: nowrap;
+  }
+  .date-badge.red    { background: #fce4e4; color: #b71c1c; }
+  .date-badge.amber  { background: #fff3cd; color: #8a5e00; }
+  .date-badge.nodate { background: #f0f0f0; color: #999; }
+  .date-badge.hold   { background: #ede7f6; color: #5e35b1; letter-spacing: 0.3px; }
+</style>
+
+<script>
+  // ── Shared utilities ───────────────────────────────────────
+  var App = (function () {
+
+    function esc(s) {
+      if (s === null || s === undefined) return '';
+      return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+        .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+    }
+    // escJ (escaping for inline onclick strings) was removed in the batch-3
+    // refactor: views use data-act/data-* labels + delegated listeners now.
+    // Don't build inline handler strings — that's the hazard we eliminated.
+    function pad2(n) { return String(n).padStart(2, '0'); }
+
+    // ── Local-date helpers (ISO yyyy-mm-dd strings throughout) ──
+    function todayStr() {
+      var d = new Date();
+      return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate());
+    }
+    function isoDateStr(d) {
+      return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate());
+    }
+    function parseIso(iso) { return new Date(iso + 'T00:00:00'); }
+    function daysBetween(a, b) { return Math.round((parseIso(b) - parseIso(a)) / 86400000); }
+    function addDaysIso(iso, days) {
+      var d = parseIso(iso);
+      d.setDate(d.getDate() + days);
+      return isoDateStr(d);
+    }
+    // Working days (Mon–Fri); negative deltas step backwards
+    function addWorkingDaysIso(iso, days) {
+      var d = parseIso(iso);
+      var step = days < 0 ? -1 : 1, left = Math.abs(days);
+      while (left > 0) {
+        d.setDate(d.getDate() + step);
+        if (d.getDay() !== 0 && d.getDay() !== 6) left--;
+      }
+      return isoDateStr(d);
+    }
+
+    var MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    var DAYS_SHORT = ['Mon','Tue','Wed','Thu','Fri'];
+
+    function fmtDayMonth(iso) {          // '2026-07-13' → '13 Jul'
+      if (!iso) return '—';
+      var p = iso.split('-');
+      return parseInt(p[2], 10) + ' ' + MONTHS[parseInt(p[1], 10) - 1];
+    }
+    function fmtDateFull(iso) {          // → '13 Jul 2026'
+      if (!iso) return '—';
+      return fmtDayMonth(iso) + ' ' + iso.substring(0, 4);
+    }
+    function fmtTime(d) { return pad2(d.getHours()) + ':' + pad2(d.getMinutes()); }
+    function fmtDateTime(iso) {
+      if (!iso) return '';
+      var d = new Date(iso);
+      if (isNaN(d)) return iso;
+      return pad2(d.getDate()) + '/' + pad2(d.getMonth() + 1) + ' ' + fmtTime(d);
+    }
+
+    // ── ISO week helpers ─────────────────────────────────────
+    function mondayOf(d) {
+      var r = new Date(d);
+      r.setHours(0, 0, 0, 0);
+      var day = r.getDay();
+      r.setDate(r.getDate() - (day === 0 ? 6 : day - 1));
+      return r;
+    }
+    function mondayOfWeekOffset(offset) {
+      var m = mondayOf(new Date());
+      m.setDate(m.getDate() + offset * 7);
+      return m;
+    }
+    function isoWeekOfDate(d) {          // Date → '2026-W29'
+      var thu = new Date(d);
+      thu.setHours(0, 0, 0, 0);
+      thu.setDate(thu.getDate() + 3 - ((thu.getDay() + 6) % 7));
+      var year = thu.getFullYear();
+      var jan4 = mondayOf(new Date(year, 0, 4));
+      var num  = Math.round((thu - jan4) / (7 * 86400000)) + 1;
+      return year + '-W' + pad2(num);
+    }
+    function isoWeekOfIso(iso) { return isoWeekOfDate(parseIso(iso)); }
+    function weekDates(offset) {         // [Mon..Fri] as Dates
+      var mon = mondayOfWeekOffset(offset), out = [];
+      for (var i = 0; i < 5; i++) {
+        var d = new Date(mon);
+        d.setDate(d.getDate() + i);
+        out.push(d);
+      }
+      return out;
+    }
+
+    // ── Server call wrapper ──────────────────────────────────
+    // App.run('fnName', [args], { ok: fn, err: fn })
+    // err defaults to the red banner; a rollback fn can be supplied to
+    // undo optimistic UI updates on failure.
+    function run(fnName, args, opts) {
+      opts = opts || {};
+      var runner = google.script.run
+        .withSuccessHandler(function (r) { if (opts.ok) opts.ok(r); })
+        .withFailureHandler(function (e) {
+          if (opts.rollback) opts.rollback();
+          if (opts.err) opts.err(e);
+          else showBanner('error', '⚠ ' + (e && e.message ? e.message : 'Request failed'));
+        });
+      runner[fnName].apply(runner, args || []);
+    }
+
+    // ── Banner ───────────────────────────────────────────────
+    function showBanner(type, msg, extraHtml) {
+      var el = document.getElementById('banner');
+      if (!el) return;
+      el.innerHTML = esc(msg) + (extraHtml || '');
+      el.className = 'banner show ' + type;
+    }
+    function hideBanner() {
+      var el = document.getElementById('banner');
+      if (el) el.classList.remove('show');
+    }
+
+    // Header nav for switching between the three views.
+    // Apps Script serves pages in a sandboxed iframe: relative links resolve
+    // against the sandbox origin, so we need the absolute /exec URL (injected
+    // by each view template as APP_BASE_URL) and target="_top" to escape the
+    // iframe. Empty base = dev mock harness → link to the local files.
+    function viewNav(current) {
+      var base = (typeof APP_BASE_URL !== 'undefined' && APP_BASE_URL) ? APP_BASE_URL : '';
+      var views = [['dispatch','Dispatch'], ['scheduler','Scheduler'], ['tracker','Tracker'], ['installer','Installer'], ['daysheets','Day sheets'], ['reports','Reports']];
+      return '<nav class="view-nav">' + views.map(function (v) {
+        var cls = v[0] === current ? ' class="current"' : '';
+        var href = base ? base + '?view=' + v[0] : v[0] + '.html';
+        return '<a href="' + href + '" target="_top"' + cls + '>' + v[1] + '</a>';
+      }).join('') + '</nav>';
+    }
+
+    return {
+      esc: esc, pad2: pad2,
+      todayStr: todayStr, isoDateStr: isoDateStr, parseIso: parseIso,
+      daysBetween: daysBetween, addDaysIso: addDaysIso, addWorkingDaysIso: addWorkingDaysIso,
+      fmtDayMonth: fmtDayMonth, fmtDateFull: fmtDateFull,
+      fmtTime: fmtTime, fmtDateTime: fmtDateTime,
+      mondayOf: mondayOf, mondayOfWeekOffset: mondayOfWeekOffset,
+      isoWeekOfDate: isoWeekOfDate, isoWeekOfIso: isoWeekOfIso, weekDates: weekDates,
+      MONTHS: MONTHS, DAYS_SHORT: DAYS_SHORT,
+      run: run, showBanner: showBanner, hideBanner: hideBanner, viewNav: viewNav
+    };
+  })();
+
+  // ── Test-notes widget ──────────────────────────────────────
+  // Self-injects a "🗒 Notes" button into every view's header so Dan can
+  // record issues while testing (stored in the AppFeedback tab) and copy
+  // the open ones for pasting into a Claude fix session. Fully
+  // self-contained: no per-view wiring, own listeners, no data-act labels.
+  (function () {
+    var notes = [];   // open notes, newest first (fetched when panel opens)
+
+    function currentView() {
+      // Views render their nav after data loads, so read it lazily
+      var el = document.querySelector('.view-nav a.current');
+      if (el) return el.textContent.trim().toLowerCase().replace(/\s+/g, '');
+      return (document.title || '').replace(/^BSC\s*—\s*/, '').trim().toLowerCase() || 'unknown';
+    }
+
+    function fmtStamp(iso) {
+      var d = new Date(iso);
+      if (isNaN(d)) return '';
+      return App.pad2(d.getDate()) + '/' + App.pad2(d.getMonth() + 1) + ' ' +
+             App.pad2(d.getHours()) + ':' + App.pad2(d.getMinutes());
+    }
+
+    function renderList() {
+      var list = document.getElementById('fbList');
+      var countEl = document.querySelector('#fbBtn .fb-count');
+      if (countEl) countEl.textContent = String(notes.length);
+      if (!notes.length) {
+        list.innerHTML = '<div class="fb-empty">No open notes — spot something, write it down.</div>';
+        return;
+      }
+      list.innerHTML = notes.map(function (n) {
+        return '<div class="fb-note-row">' +
+          '<span class="fb-note-meta">' + App.esc(fmtStamp(n.created_at)) +
+            ' <span class="fb-note-view">' + App.esc(n.view || '?') + '</span></span>' +
+          '<span class="fb-note-text">' + App.esc(n.note) + '</span>' +
+          '<button class="fb-done-btn" data-fb-key="' + App.esc(n.note_key) + '" ' +
+            'title="Mark as dealt with (hides it — the row stays in the AppFeedback tab)">✓</button>' +
+        '</div>';
+      }).join('');
+    }
+
+    function loadNotes() {
+      document.getElementById('fbList').innerHTML = '<div class="fb-empty">Loading…</div>';
+      App.run('getAppFeedback', [], {
+        ok: function (rows) {
+          notes = (rows || []).filter(function (r) { return r.status !== 'done'; });
+          renderList();
+        },
+        err: function (e) {
+          document.getElementById('fbList').innerHTML =
+            '<div class="fb-empty">Could not load notes: ' + App.esc(e && e.message || '') + '</div>';
+        }
+      });
+    }
+
+    function addNote() {
+      var ta = document.getElementById('fbText');
+      var text = ta.value.trim();
+      if (!text) { ta.focus(); return; }
+      var btn = document.getElementById('fbAdd');
+      btn.disabled = true; btn.textContent = 'Saving…';
+      App.run('addAppFeedback', [currentView(), text], {
+        ok: function () {
+          ta.value = '';
+          btn.disabled = false; btn.textContent = 'Add note';
+          loadNotes();
+        },
+        err: function (e) {
+          btn.disabled = false; btn.textContent = 'Add note';
+          App.showBanner('error', '⚠ Note not saved: ' + (e && e.message || 'request failed'));
+        }
+      });
+    }
+
+    function markDone(key, rowBtn) {
+      rowBtn.disabled = true;
+      App.run('setAppFeedbackStatus', [key, 'done'], {
+        ok: function () {
+          notes = notes.filter(function (n) { return n.note_key !== key; });
+          renderList();
+        },
+        err: function (e) {
+          rowBtn.disabled = false;
+          App.showBanner('error', '⚠ ' + (e && e.message || 'request failed'));
+        }
+      });
+    }
+
+    function copyForClaude() {
+      var lines = notes.map(function (n) {
+        return '- [' + fmtStamp(n.created_at) + ' · ' + (n.view || '?') + '] ' + n.note;
+      });
+      var text = notes.length
+        ? 'BSC Production Hub — open test notes:\n' + lines.join('\n')
+        : 'BSC Production Hub — no open test notes.';
+      var ta = document.createElement('textarea');
+      ta.value = text;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+      var btn = document.getElementById('fbCopy');
+      btn.textContent = '✓ Copied';
+      setTimeout(function () { btn.textContent = '📋 Copy for Claude'; }, 1500);
+    }
+
+    function init() {
+      var header = document.querySelector('.header');
+      if (!header || document.getElementById('fbBtn')) return;
+
+      var btn = document.createElement('button');
+      btn.className = 'hbtn';
+      btn.id = 'fbBtn';
+      btn.title = 'Record an issue while testing — feed the list back to Claude';
+      btn.innerHTML = '🗒 Notes<span class="fb-count" style="display:none"></span>';
+      header.appendChild(btn);
+
+      var modal = document.createElement('div');
+      modal.className = 'modal-bg';
+      modal.id = 'fbModal';
+      modal.innerHTML =
+        '<div class="modal-box" style="max-width:540px">' +
+          '<div class="modal-title">🗒 Test notes</div>' +
+          '<div class="form-row">' +
+            '<textarea id="fbText" placeholder="What went wrong / what you expected / where (view, card, button)…"></textarea>' +
+          '</div>' +
+          '<div style="display:flex;justify-content:flex-end">' +
+            '<button class="btn-pri" id="fbAdd">Add note</button>' +
+          '</div>' +
+          '<div id="fbList" style="margin-top:12px;max-height:45vh;overflow-y:auto"></div>' +
+          '<div class="modal-btns">' +
+            '<button class="btn-sec" id="fbCopy">📋 Copy for Claude</button>' +
+            '<button class="btn-sec" id="fbClose">Close</button>' +
+          '</div>' +
+        '</div>';
+      document.body.appendChild(modal);
+
+      btn.addEventListener('click', function () {
+        modal.classList.add('show');
+        var countEl = btn.querySelector('.fb-count');
+        if (countEl) countEl.style.display = '';
+        loadNotes();
+        document.getElementById('fbText').focus();
+      });
+      document.getElementById('fbAdd').addEventListener('click', addNote);
+      // Ctrl+Enter (or Cmd+Enter) in the textarea = Add note
+      document.getElementById('fbText').addEventListener('keydown', function (e) {
+        if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); addNote(); }
+      });
+      document.getElementById('fbCopy').addEventListener('click', copyForClaude);
+      document.getElementById('fbClose').addEventListener('click', function () {
+        modal.classList.remove('show');
+      });
+      modal.addEventListener('click', function (e) {
+        if (e.target === modal) modal.classList.remove('show');
+      });
+      document.getElementById('fbList').addEventListener('click', function (e) {
+        var b = e.target.closest('[data-fb-key]');
+        if (b) markDone(b.dataset.fbKey, b);
+      });
+    }
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', init);
+    } else {
+      init();
+    }
+  })();
+</script>

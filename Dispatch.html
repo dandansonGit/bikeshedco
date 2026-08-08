@@ -1,0 +1,1097 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>BSC — Dispatch Planner</title>
+  <script>window.APP_BASE_URL = <?!= JSON.stringify(ScriptApp.getService().getUrl()) ?>;</script>
+  <?!= include('Shared'); ?>
+  <?!= include('DispatchStyles'); ?>
+</head>
+<body>
+
+<div class="header">
+  <h1>Dispatch Planner</h1>
+  <div class="header-sep"></div>
+  <div class="header-meta" id="hdrMeta">Loading…</div>
+  <div id="viewNav"></div>
+  <button class="hbtn" onclick="shiftWeeks(-1)">&#8592; Prev</button>
+  <button class="hbtn" onclick="jumpToToday()">Today</button>
+  <button class="hbtn" onclick="shiftWeeks(1)">Next &#8594;</button>
+  <div class="header-sep"></div>
+  <button class="hbtn" onclick="openSuggestions()">✨ Suggest install days</button>
+  <button class="hbtn" onclick="openHsExport()" title="Copyable list of app-planned dates for Sasha to enter into HubSpot">📋 For HubSpot</button>
+  <button class="hbtn" onclick="openHelp()" title="What do the colours and icons mean?">?</button>
+  <button class="hbtn" id="btnRefresh" onclick="doRefresh()">⟳ Refresh</button>
+</div>
+
+<!-- Two filter groups on one strip: the left chips filter ORDER cards,
+     the violet right chips filter the violet VISIT markers ("show only
+     that type"; neither active = all visits shown). Orders and visits
+     never filter each other. -->
+<div class="search-strip">
+  <input type="text" class="search-input" id="searchInput" placeholder="Search orders, postcode, colour…" oninput="onSearchInput(this.value)">
+  <span class="chip-group-label">Orders</span>
+  <button class="chip" id="chipDraft" onclick="toggleChip('draft')">Draft</button>
+  <button class="chip" id="chipProposed" onclick="toggleChip('proposed')">Proposed</button>
+  <button class="chip" id="chipConfirmed" onclick="toggleChip('confirmed')">Confirmed</button>
+  <button class="chip" id="chipNoFinish" onclick="toggleChip('noFinish')">Missing colour</button>
+  <span class="search-count" id="searchCount"></span>
+  <span class="chip-divider"></span>
+  <span class="chip-group-label">Visits</span>
+  <button class="chip chip-visit" id="chipSurveys" onclick="toggleTypeChip('surveys')" title="Show only survey visits (the violet dashed cards) — orders are unaffected">📋 Surveys</button>
+  <button class="chip chip-visit" id="chipAmends" onclick="toggleTypeChip('amendments')" title="Show only amendment visits (the violet dashed cards) — orders are unaffected">🔧 Amendments</button>
+  <span class="search-count" id="visitCount"></span>
+</div>
+
+<div class="banner" id="banner"></div>
+
+<div class="workspace">
+  <div class="sidebar">
+    <div class="sidebar-hdr">To Plan <span class="count" id="trayCount">0</span></div>
+    <div class="sidebar-body" id="trayBody" data-drop="">
+      <div class="loading-wrap" style="height:120px"><div class="spinner"></div></div>
+    </div>
+  </div>
+  <div class="board-wrap">
+    <div class="board" id="board">
+      <div class="loading-wrap"><div class="spinner"></div><div>Loading dispatch data…</div></div>
+    </div>
+  </div>
+</div>
+
+<!-- Suggestions slide-in -->
+<div class="sugg-panel" id="suggPanel">
+  <div class="sugg-hdr">
+    <span class="sugg-title">Suggested install days</span>
+    <button class="sugg-close" onclick="closeSuggestions()">&#215;</button>
+  </div>
+  <div class="sugg-body" id="suggBody"></div>
+</div>
+
+<div class="modal-bg" id="helpModal">
+  <div class="modal-box" style="max-width:470px">
+    <div class="modal-title">How dispatch planning works</div>
+    <div style="font-size:13px;line-height:1.6">
+      <div style="margin-bottom:8px"><strong>Each card is one shed</strong> (a multi-shed order can go to different sites on different days, so each shed is planned on its own). The 🎯 badge is the <em>target</em> dispatch date sales gave the customer. Dragging a card onto a day sets <em>your proposed</em> dispatch date.</div>
+      <div style="margin-bottom:8px"><strong>⏸ ON HOLD</strong> = sales set the shed's Dispatch status to "On hold" in HubSpot (its dispatch date is blank on purpose). It's left out of suggested install days; the badge clears when sales lift the hold.</div>
+      <div style="margin-bottom:8px"><strong>Click a week header</strong> to expand that week into full-height day columns — same drag-and-drop, plus a notes box per day. Busy weeks widen automatically on the board. <strong>£ figures</strong> = dispatch value for the day/week (the shed's HubSpot "dispatch value" field, split equally across an order's sheds).</div>
+      <div style="margin-bottom:8px"><strong>Card colour = dispatch type:</strong> white = Install · <span style="background:#eef6fd;padding:0 4px;border-radius:3px">blue = team delivery</span> · <span style="background:#fff7e8;padding:0 4px;border-radius:3px">amber = courier</span> · <span style="background:#f3f4f6;padding:0 4px;border-radius:3px">grey = collection</span> · dashed violet = survey/amendment visits. The left border stays the status colour.</div>
+      <div style="margin-bottom:8px"><strong>➕ Join suggestions</strong> in Suggest install days: drafts that fit onto a day already proposed/confirmed with the customer (spare van space, same area, inside their ±2-week window). 🔒 stops are the agreed jobs — "Add to day" only places the new ones.</div>
+      <div style="margin-bottom:8px"><strong>Status flow:</strong> <span class="status-pill status-draft">draft</span> internal only → <span class="status-pill status-proposed">proposed</span> offered to the client → <span class="status-pill status-confirmed">confirmed</span> agreed (card locks 🔒; unconfirm via the card to move it). Change status by clicking a card.</div>
+      <div style="margin-bottom:8px"><strong>Red outline</strong> = proposed date is more than 2 weeks from the target — outside what the customer was told.</div>
+      <div style="margin-bottom:8px"><strong>⚠ No colour</strong> = this shed has no finish chosen yet; you can place it as a draft, but can't propose it to the client until the colour is set in HubSpot (the spray booth plans by colour).</div>
+      <div style="margin-bottom:8px"><strong>✨ Suggest install days</strong> plans whole days: real drive times from the workshop, van space (4 small-shed slots), ≤2–3 customers, ≤1h between addresses, ≤10h door-to-door, London runs on Tue–Thu only. Each suggestion shows the route with leg times — "Place day" books all its orders as drafts. Flag a big job as <strong>Single-install day</strong> in its card to give it the van to itself.</div>
+      <div style="margin-bottom:8px"><strong>🔒 on a card</strong> = its status is set by sales in HubSpot (shed dispatch_status = Proposed/Confirmed) — change it there, then Refresh. A <strong>red 🔒</strong> = the confirmed date is within 14 days; moving it now costs the customer a penalty (details on the card's modal).</div>
+      <div style="margin-bottom:8px"><strong>Dashed violet cards</strong> = amendment 🔧 and site-survey 📋 visits from the HubSpot Amendments pipeline, shown on their agreed dates with the order's original dispatch date. They're read-only here — reschedule them in HubSpot (click the card → Open in HubSpot). Ones with no date yet sit at the bottom of the left tray.</div>
+      <div><strong>Grey ✓ dispatched cards</strong> appear when you scroll into past weeks (← Prev): read-only history of what actually shipped, on the day it was planned (hover shows the date it was ticked dispatched if different). Past day/week £ totals include them.</div>
+    </div>
+    <div class="modal-btns"><button class="btn-pri" onclick="closeHelp()">Got it</button></div>
+  </div>
+</div>
+
+<!-- Amendment / survey detail (read-only) -->
+<div class="modal-bg" id="amendModal">
+  <div class="modal-box">
+    <div class="modal-title" id="amendTitle">Visit</div>
+    <div class="modal-sub" id="amendSub" style="line-height:1.7"></div>
+    <div class="modal-btns">
+      <button class="btn-sec" onclick="closeAmendModal()">Close</button>
+      <a id="amendHsLink" href="#" target="_blank" rel="noopener" class="btn-pri" style="text-decoration:none;display:inline-block">Open in HubSpot</a>
+    </div>
+  </div>
+</div>
+
+<!-- Deal detail modal -->
+<div class="modal-bg" id="hsExportModal">
+  <div class="modal-box" style="max-width:760px">
+    <div class="modal-title">Dates planned in the app — for HubSpot</div>
+    <div class="modal-sub" style="margin-bottom:8px">
+      Give this to Sasha: each row is a shed planned here but not yet updated in
+      HubSpot (set the shed's <strong>Dispatch date</strong> and
+      <strong>Dispatch status</strong>). Drafts are internal — normally only
+      proposed/confirmed rows go into HubSpot.
+    </div>
+    <div id="hsExportBody" style="max-height:50vh;overflow:auto"></div>
+    <div class="modal-btns">
+      <button class="btn-pri" onclick="copyHsExport()" id="hsExportCopyBtn">Copy for pasting</button>
+      <button class="btn-sec" onclick="closeHsExport()">Close</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-bg" id="dealModal">
+  <div class="modal-box">
+    <div class="modal-title" id="dealModalTitle">Order</div>
+    <div class="modal-sub" id="dealModalSub"></div>
+    <div class="form-row">
+      <label>Proposed dispatch date</label>
+      <input type="date" id="dealDate">
+    </div>
+    <div class="form-row">
+      <label>Dispatch notes</label>
+      <textarea id="dealNotes" placeholder="Notes for this order…"></textarea>
+    </div>
+    <div class="form-row" style="display:flex;align-items:center;gap:8px">
+      <input type="checkbox" id="dealSingleDay" style="width:16px;height:16px">
+      <label style="margin:0;font-weight:600">Single-install day (large/high-value — planner gives it the van to itself)</label>
+    </div>
+    <div class="form-row" id="dealStatusBtns" style="display:flex;gap:8px;flex-wrap:wrap"></div>
+    <div class="modal-btns">
+      <button class="btn-danger" id="dealRemoveBtn" onclick="removeFromBoard()" style="margin-right:auto">Remove from board</button>
+      <a id="dealHsLink" href="#" target="_blank" rel="noopener" class="btn-sec" style="text-decoration:none;display:inline-block">Open in HubSpot</a>
+      <button class="btn-sec" onclick="closeDealModal()">Cancel</button>
+      <button class="btn-pri" onclick="saveDealModal()">Save</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  // ── State ──────────────────────────────────────────────────
+  var allJobs = [];
+  var allAmendments = [];
+  var cacheTs = null;
+  var CFG = { dispatchWindowDays: 14 };
+  var weekOffset = 0;
+  var focusWeek = null;      // non-null = expanded single-week day view (week index)
+  var dayNotes = {};         // day ISO → note text
+  var dayHours = {};         // day ISO → {clockHrs, manHrs} crew estimate
+  var dragId = null;
+  var editingId = null;
+  var WEEKS_SHOWN = 4;
+  // Look-back history: archived (dispatched) jobs for the visible window,
+  // fetched on demand when the window includes past days. key = the range
+  // already loaded; loading = the range in flight (dedupes re-entry).
+  var history = { key: null, loading: null, jobs: [] };
+
+  var searchQuery = '';
+  var statusFilters = { draft: false, proposed: false, confirmed: false, noFinish: false };
+  var typeFilters = { surveys: false, amendments: false };
+
+  var esc = App.esc;
+
+  function fmtMoney(n) { return '£' + Math.round(n).toLocaleString('en-GB'); }
+
+  function holidayName(dayStr) { return (CFG.bankHolidays || {})[dayStr] || ''; }
+
+  // Sum the crew man-hour estimates for the days in [start, end]
+  function manHrsBetween(start, end) {
+    var t = 0;
+    Object.keys(dayHours).forEach(function (day) {
+      if (day >= start && day <= end) t += dayHours[day].manHrs || 0;
+    });
+    return Math.round(t * 10) / 10;
+  }
+
+  function revPerHour(value, manHrs) {
+    if (!value || !manHrs) return '';
+    return fmtMoney(value / manHrs) + '/hr';
+  }
+
+  window.addEventListener('load', function () {
+    document.getElementById('viewNav').innerHTML = App.viewNav('dispatch');
+    loadData(false);
+  });
+
+  // Auto-refresh (same cadence as the Scheduler) — never mid-drag, with a
+  // modal open, or while a day note is being typed
+  setInterval(function () {
+    if (dragId || editingId) return;
+    if (document.querySelector('.modal-bg.show')) return;
+    if (document.activeElement && document.activeElement.tagName === 'TEXTAREA') return;
+    loadData(false);
+  }, 15 * 60 * 1000);
+
+  function loadData(force) {
+    App.run('getDispatchData', [force], {
+      ok: function (result) {
+        allJobs = result.jobs || [];
+        allAmendments = result.amendments || [];
+        dayNotes = result.dayNotes || {};
+        dayHours = result.dayHours || {};
+        cacheTs = result.timestamp;
+        CFG = result.config || CFG;
+        App.hideBanner();
+        if (result.amendmentsError) {
+          App.showBanner('warn', '⚠ Amendments unavailable — ' + result.amendmentsError +
+            ' (the HubSpot token may need the tickets read scope)');
+        }
+        updateMeta();
+        render();
+      },
+      err: function (e) {
+        App.showBanner('error', '⚠ Failed to load: ' + e.message);
+        document.getElementById('board').innerHTML =
+          '<div class="loading-wrap"><div>Error loading data. <a href="#" onclick="doRefresh();return false">Retry</a></div></div>';
+      }
+    });
+  }
+
+  function doRefresh() {
+    var btn = document.getElementById('btnRefresh');
+    btn.disabled = true;
+    btn.textContent = '⟳ Refreshing…';
+    App.run('invalidateLiveCache', [], {
+      ok: function () { loadData(true); btn.disabled = false; btn.textContent = '⟳ Refresh'; },
+      err: function () { btn.disabled = false; btn.textContent = '⟳ Refresh'; }
+    });
+  }
+
+  function updateMeta() {
+    var unplanned = allJobs.filter(function (d) { return !d.proposedDate; }).length;
+    var confirmed = allJobs.filter(function (d) { return d.status === 'confirmed'; }).length;
+    document.getElementById('hdrMeta').textContent =
+      allJobs.length + ' live sheds · ' + unplanned + ' to plan · ' + confirmed + ' confirmed' +
+      (allAmendments.length ? ' · ' + allAmendments.length + ' open visit' + (allAmendments.length === 1 ? '' : 's') : '') +
+      (cacheTs ? ' · updated ' + App.fmtTime(new Date(cacheTs)) : '');
+  }
+
+  function openHelp()  { document.getElementById('helpModal').classList.add('show'); }
+  function closeHelp() { document.getElementById('helpModal').classList.remove('show'); }
+
+  // ── Filters ────────────────────────────────────────────────
+  function jobMatches(d) {
+    if (searchQuery) {
+      var hay = [d.name, d.postCode, d.area, d.finish, d.shedType].join(' ').toLowerCase();
+      if (hay.indexOf(searchQuery.toLowerCase()) === -1) return false;
+    }
+    var anyStatus = statusFilters.draft || statusFilters.proposed || statusFilters.confirmed;
+    if (anyStatus) {
+      var st = d.status || 'draft';
+      if (!statusFilters[st]) return false;
+    }
+    if (statusFilters.noFinish && !d.missingFinish) return false;
+    return true;
+  }
+  function anyFilterActive() {
+    return !!(searchQuery || statusFilters.draft || statusFilters.proposed ||
+      statusFilters.confirmed || statusFilters.noFinish);
+  }
+  function onSearchInput(val) { searchQuery = val.trim(); applyFilters(); }
+  function toggleChip(key) {
+    statusFilters[key] = !statusFilters[key];
+    var id = 'chip' + key.charAt(0).toUpperCase() + key.slice(1);
+    document.getElementById(id).classList.toggle('active', statusFilters[key]);
+    applyFilters();
+  }
+  // Surveys/Amendments chips act on ticket markers only (orders unaffected):
+  // neither active = show all; one active = show only that visit type.
+  function toggleTypeChip(key) {
+    typeFilters[key] = !typeFilters[key];
+    document.getElementById(key === 'surveys' ? 'chipSurveys' : 'chipAmends')
+      .classList.toggle('active', typeFilters[key]);
+    // Order cards recede while a visit filter is on, so the visits pop
+    document.body.classList.toggle('visits-focus', typeFilters.surveys || typeFilters.amendments);
+    render();
+  }
+  function updateVisitCount() {
+    var el = document.getElementById('visitCount');
+    if (!el) return;
+    var anyType = typeFilters.surveys || typeFilters.amendments;
+    el.textContent = (anyType || searchQuery) && allAmendments.length
+      ? allAmendments.filter(amendMatches).length + ' of ' + allAmendments.length + ' visits'
+      : '';
+  }
+  function amendMatches(a) {
+    if (typeFilters.surveys || typeFilters.amendments) {
+      if (a.type === 'survey' && !typeFilters.surveys) return false;
+      if (a.type === 'amendment' && !typeFilters.amendments) return false;
+    }
+    if (searchQuery) {
+      var hay = [a.subject, a.postCode, a.area, a.dealName, a.category].join(' ').toLowerCase();
+      if (hay.indexOf(searchQuery.toLowerCase()) === -1) return false;
+    }
+    return true;
+  }
+  function applyFilters() {
+    document.getElementById('searchCount').textContent = anyFilterActive()
+      ? allJobs.filter(jobMatches).length + ' of ' + allJobs.length + ' orders' : '';
+    render();
+  }
+
+  // ── Render ─────────────────────────────────────────────────
+  function render() {
+    renderTray();
+    renderBoard();
+    updateVisitCount();
+  }
+
+  function renderTray() {
+    var tray = allJobs
+      .filter(function (d) { return !d.proposedDate; })
+      .sort(function (a, b) {
+        return (a.targetDispatchDate || 'zzzz').localeCompare(b.targetDispatchDate || 'zzzz');
+      });
+    document.getElementById('trayCount').textContent = tray.length;
+    var visible = anyFilterActive() ? tray.filter(jobMatches) : tray;
+    var html = visible.length
+      ? visible.map(function (d) { return buildShedCard(d); }).join('')
+      : (tray.length ? '<div class="sidebar-empty">No matches</div>'
+                     : '<div class="sidebar-empty">All orders planned ✓</div>');
+
+    // Chase list: open visits with no agreed date yet (dates live in HubSpot)
+    var undated = allAmendments.filter(function (a) { return !a.date && amendMatches(a); });
+    if (undated.length) {
+      html += '<div class="amend-divider">Visits needing a date (' + undated.length + ')</div>' +
+        undated.map(function (a) { return buildAmendCard(a); }).join('');
+    }
+    document.getElementById('trayBody').innerHTML = html;
+  }
+
+  function renderBoard() {
+    ensureHistory();
+    var board = document.getElementById('board');
+    if (focusWeek !== null) { board.innerHTML = buildWeekFocus(focusWeek); return; }
+    var html = '';
+    for (var w = 0; w < WEEKS_SHOWN; w++) html += buildWeekCol(weekOffset + w);
+    board.innerHTML = html;
+  }
+
+  // ── Dispatched-job history (read-only look-back) ───────────
+  // When the visible window reaches into the past, fetch what actually
+  // shipped (Archive + Dispatch tabs) once per window and re-render.
+  function ensureHistory() {
+    var start = App.isoDateStr(App.mondayOfWeekOffset(weekOffset));
+    var end   = App.addDaysIso(start, WEEKS_SHOWN * 7 - 1);
+    var key   = start + '|' + end;
+    if (start >= App.todayStr()) { history.key = key; history.jobs = []; return; }
+    if (history.key === key || history.loading === key) return;
+    history.loading = key;
+    App.run('getDispatchHistory', [start, end], {
+      ok: function (r) {
+        history.loading = null;
+        history.key = key;
+        history.jobs = (r && r.jobs) || [];
+        renderBoard();
+      },
+      // best-effort: past weeks just stay history-less on failure
+      err: function () { history.loading = null; }
+    });
+  }
+  function historyForRange(start, end) {
+    // Status chips filter LIVE orders only; dispatched history obeys the
+    // search box (and hides under status filters — it is none of them).
+    if (statusFilters.draft || statusFilters.proposed || statusFilters.confirmed || statusFilters.noFinish) return [];
+    return history.jobs.filter(function (j) {
+      if (j.date < start || j.date > end) return false;
+      if (searchQuery) {
+        var hay = [j.name, j.postCode, j.finish, j.shedType].join(' ').toLowerCase();
+        if (hay.indexOf(searchQuery.toLowerCase()) === -1) return false;
+      }
+      return true;
+    });
+  }
+  function historyForDay(dayStr) { return historyForRange(dayStr, dayStr); }
+  function buildHistoryCard(j) {
+    var tick = j.actualDate && j.actualDate !== j.date
+      ? 'Ticked dispatched ' + App.fmtDateFull(j.actualDate) : 'Dispatched';
+    return '<div class="deal-card dc-history" title="' + esc(tick) + ' — read-only history from the Archive">' +
+      '<div class="deal-ref">' + esc(j.name) + '</div>' +
+      '<div class="deal-row">' +
+        (j.postCode ? '<span class="area-badge">' + esc(String(j.postCode).split(' ')[0]) + '</span>' : '') +
+        '<span class="status-pill status-dispatched">✓ dispatched</span>' +
+      '</div>' +
+      '<div class="deal-row">' +
+        (j.finish ? '<span class="finish-chip">' + esc(j.finish) + '</span>' : '') +
+        (j.shedType ? '<span class="shed-count">' + esc(j.shedType) + '</span>' : '') +
+      '</div>' +
+    '</div>';
+  }
+
+  function buildWeekCol(weekIdx) {
+    var weekDays = App.weekDates(weekIdx);
+    var weekStr = App.isoWeekOfDate(weekDays[0]);
+    var weekNum = parseInt(weekStr.split('-W')[1], 10);
+    var today = App.todayStr();
+
+    var weekStart = App.isoDateStr(weekDays[0]);
+    var weekEnd = App.isoDateStr(weekDays[4]);
+    var weekEndSun = App.addDaysIso(weekStart, 6);   // include Sat/Sun so nothing goes invisible
+    var jobsThisWeek = allJobs.filter(function (d) {
+      return d.proposedDate && d.proposedDate >= weekStart && d.proposedDate <= weekEndSun;
+    });
+
+    var visitsThisWeek = allAmendments.filter(function (a) {
+      return a.date && a.date >= weekStart && a.date <= weekEndSun;
+    });
+
+    var maxPerDay = 0;
+    var slots = weekDays.map(function (d, i) {
+      var dayStr = App.isoDateStr(d);
+      var dayDeals = jobsThisWeek.filter(function (dl) { return dl.proposedDate === dayStr; });
+      var visible = anyFilterActive() ? dayDeals.filter(jobMatches) : dayDeals;
+      var dayVisits = visitsThisWeek.filter(function (a) { return a.date === dayStr && amendMatches(a); });
+      var dayHist = historyForDay(dayStr);
+      maxPerDay = Math.max(maxPerDay, visible.length + dayVisits.length + dayHist.length);
+      var dayVal = dayDeals.reduce(function (t, x) { return t + (x.perShedValue || 0); }, 0) +
+                   dayHist.reduce(function (t, x) { return t + (x.value || 0); }, 0);
+      var note = dayNotes[dayStr];
+      var hol = holidayName(dayStr);
+      return '<div class="day-slot' + (dayStr === today ? ' today' : '') + (hol ? ' bankhol' : '') + '" ' +
+        (hol ? 'title="' + esc(hol) + ' — bank holiday" ' : '') +
+        'data-drop="' + esc(dayStr) + '" id="slot-' + dayStr + '">' +
+        '<div class="day-slot-label">' + App.DAYS_SHORT[i] + ' ' + App.fmtDayMonth(dayStr) +
+          (hol ? ' <span class="hol-tag">🏖 ' + esc(hol) + '</span>' : '') +
+          (note ? ' <span title="' + esc(note) + '">📝</span>' : '') +
+          (dayVal ? '<span class="day-val">' + fmtMoney(dayVal) + '</span>' : '') +
+        '</div>' +
+        dayHist.map(function (h) { return buildHistoryCard(h); }).join('') +
+        visible.map(function (dl) { return buildShedCard(dl); }).join('') +
+        dayVisits.map(function (a) { return buildAmendCard(a); }).join('') +
+      '</div>';
+    }).join('');
+
+    // Weekend catch-slot: only shown when something is dated Sat/Sun
+    // (rare — usually a HubSpot-entered date), so it can't go invisible.
+    var wkndDeals = jobsThisWeek.filter(function (d) {
+      return d.proposedDate > weekEnd && (!anyFilterActive() || jobMatches(d));
+    });
+    var wkndVisits = visitsThisWeek.filter(function (a) {
+      return a.date > weekEnd && amendMatches(a);
+    });
+    if (wkndDeals.length || wkndVisits.length) {
+      slots += '<div class="day-slot">' +
+        '<div class="day-slot-label">Sat/Sun ⚠</div>' +
+        wkndDeals.map(function (dl) { return buildShedCard(dl); }).join('') +
+        wkndVisits.map(function (a) { return buildAmendCard(a); }).join('') +
+      '</div>';
+    }
+
+    var subBits = [];
+    if (jobsThisWeek.length) subBits.push(jobsThisWeek.length + ' dispatch' + (jobsThisWeek.length === 1 ? '' : 'es'));
+    var histThisWeek = historyForRange(weekStart, weekEndSun);
+    if (histThisWeek.length) subBits.push(histThisWeek.length + ' dispatched ✓');
+    // Count only the visits actually rendered — with a visit filter on,
+    // claiming "1 visit" for a hidden marker reads as a bug
+    var visitsShown = visitsThisWeek.filter(amendMatches);
+    if (visitsShown.length) subBits.push(visitsShown.length + ' visit' + (visitsShown.length === 1 ? '' : 's'));
+    var weekValue = jobsThisWeek.reduce(function (t, x) { return t + (x.perShedValue || 0); }, 0) +
+                    histThisWeek.reduce(function (t, x) { return t + (x.value || 0); }, 0);
+    var weekManHrs = manHrsBetween(weekStart, weekEndSun);
+    if (weekManHrs) {
+      var paid = (CFG.installDay && CFG.installDay.paidManHrsPerWeek) || 80;
+      subBits.push('≈' + weekManHrs + '/' + paid + ' man-hrs');
+      var rate = revPerHour(weekValue, weekManHrs);
+      if (rate) subBits.push(rate);
+    }
+
+    // Busy weeks widen — 2 cards per row at 3+ on a day, 3 per row at 5+ —
+    // so days stay visible without scrolling; clicking the header expands
+    // the week into a full day view.
+    var sizeCls = maxPerDay >= 5 ? ' busy busy3' : maxPerDay >= 3 ? ' busy' : '';
+    return '<div class="week-col' + sizeCls + '">' +
+      '<div class="week-hdr" data-act="week-focus" data-idx="' + weekIdx + '" title="Click to expand this week into a day view">' +
+        '<div class="week-title">Week ' + weekNum +
+          '<span class="week-value">' + (weekValue ? fmtMoney(weekValue) : '') + '</span>' +
+          '<span class="week-expand">⤢</span></div>' +
+        '<div class="week-sub">' + (subBits.length
+          ? subBits.join(' · ')
+          : 'Drag orders onto a day, or click a card to set a date') + '</div>' +
+      '</div>' +
+      '<div class="week-body">' + slots + '</div>' +
+    '</div>';
+  }
+
+  // Expanded single-week day view: full-height day columns with per-day
+  // dispatch value and a notes box each. Same drop targets as the board.
+  function buildWeekFocus(weekIdx) {
+    var weekDays = App.weekDates(weekIdx);
+    var weekStr = App.isoWeekOfDate(weekDays[0]);
+    var weekNum = parseInt(weekStr.split('-W')[1], 10);
+    var today = App.todayStr();
+    var weekStart = App.isoDateStr(weekDays[0]);
+    var weekEnd = App.isoDateStr(weekDays[4]);
+    var weekEndSun = App.addDaysIso(weekStart, 6);
+
+    var jobsThisWeek = allJobs.filter(function (d) {
+      return d.proposedDate && d.proposedDate >= weekStart && d.proposedDate <= weekEndSun;
+    });
+    var visitsThisWeek = allAmendments.filter(function (a) {
+      return a.date && a.date >= weekStart && a.date <= weekEndSun;
+    });
+    var weekValue = jobsThisWeek.reduce(function (t, x) { return t + (x.perShedValue || 0); }, 0) +
+                    historyForRange(weekStart, weekEndSun).reduce(function (t, x) { return t + (x.value || 0); }, 0);
+
+    var cols = weekDays.map(function (d, i) {
+      var dayStr = App.isoDateStr(d);
+      var dayDeals = jobsThisWeek.filter(function (dl) { return dl.proposedDate === dayStr; });
+      var visible = anyFilterActive() ? dayDeals.filter(jobMatches) : dayDeals;
+      var dayVisits = visitsThisWeek.filter(function (a) { return a.date === dayStr && amendMatches(a); });
+      var dayHist = historyForDay(dayStr);
+      var dayVal = dayDeals.reduce(function (t, x) { return t + (x.perShedValue || 0); }, 0) +
+                   dayHist.reduce(function (t, x) { return t + (x.value || 0); }, 0);
+      var hol = holidayName(dayStr);
+      var dh = dayHours[dayStr];
+      var hoursBit = dh
+        ? '<div class="fday-hours" title="Estimated crew day: drive + installs (' + dh.clockHrs + 'h door-to-door × crew of ' +
+            ((CFG.installDay && CFG.installDay.crewSize) || 2) + ')">≈' + dh.manHrs + ' man-hrs' +
+            (dayVal ? ' · ' + revPerHour(dayVal, dh.manHrs) : '') + '</div>'
+        : '';
+      return '<div class="fday-col' + (dayStr === today ? ' today' : '') + (hol ? ' bankhol' : '') + '">' +
+        '<div class="fday-hdr">' + App.DAYS_SHORT[i] + ' ' + App.fmtDayMonth(dayStr) +
+          (hol ? ' <span class="hol-tag">🏖 ' + esc(hol) + '</span>' : '') +
+          (dayVal ? '<span class="day-val">' + fmtMoney(dayVal) + '</span>' : '') + '</div>' +
+        hoursBit +
+        '<div class="fday-cards" data-drop="' + esc(dayStr) + '" id="slot-' + dayStr + '">' +
+          dayHist.map(function (h) { return buildHistoryCard(h); }).join('') +
+          visible.map(function (dl) { return buildShedCard(dl); }).join('') +
+          dayVisits.map(function (a) { return buildAmendCard(a); }).join('') +
+        '</div>' +
+        '<textarea class="fday-notes" data-day-note="' + esc(dayStr) + '" ' +
+          'placeholder="Notes for ' + App.DAYS_SHORT[i] + '…">' + esc(dayNotes[dayStr] || '') + '</textarea>' +
+      '</div>';
+    }).join('');
+
+    var wkndDeals = jobsThisWeek.filter(function (d) {
+      return d.proposedDate > weekEnd && (!anyFilterActive() || jobMatches(d));
+    });
+    var wkndVisits = visitsThisWeek.filter(function (a) {
+      return a.date > weekEnd && amendMatches(a);
+    });
+    if (wkndDeals.length || wkndVisits.length) {
+      cols += '<div class="fday-col"><div class="fday-hdr">Sat/Sun ⚠</div><div class="fday-cards">' +
+        wkndDeals.map(function (dl) { return buildShedCard(dl); }).join('') +
+        wkndVisits.map(function (a) { return buildAmendCard(a); }).join('') +
+      '</div></div>';
+    }
+
+    var weekManHrs = manHrsBetween(weekStart, weekEndSun);
+    var paidHrs = (CFG.installDay && CFG.installDay.paidManHrsPerWeek) || 80;
+    var wfStats = [];
+    if (weekValue) wfStats.push(fmtMoney(weekValue));
+    if (weekManHrs) {
+      wfStats.push('≈' + weekManHrs + ' of ' + paidHrs + ' paid man-hrs');
+      var wkRate = revPerHour(weekValue, weekManHrs);
+      if (wkRate) wfStats.push(wkRate);
+    }
+    return '<div class="week-focus">' +
+      '<div class="wf-hdr">' +
+        '<button class="hbtn" data-act="week-unfocus">&#8592; All weeks</button>' +
+        '<div class="wf-title">Week ' + weekNum + ' · ' + App.fmtDayMonth(weekStart) + '–' + App.fmtDayMonth(weekEnd) + '</div>' +
+        (wfStats.length ? '<div class="wf-value">' + wfStats.join(' · ') + '</div>' : '') +
+      '</div>' +
+      '<div class="wf-days">' + cols + '</div>' +
+    '</div>';
+  }
+
+  // Day-note saves, debounced per day; empty clears (null-clear contract).
+  var dayNoteTimers = {};
+  function onDayNoteInput(day, val) {
+    clearTimeout(dayNoteTimers[day]);
+    dayNoteTimers[day] = setTimeout(function () {
+      dayNotes[day] = val;
+      App.run('saveDayNote', [day, val || null], {});
+    }, 600);
+  }
+
+  // Read-only marker for an amendment/survey visit (dates managed in HubSpot)
+  function buildAmendCard(a) {
+    var isSurvey = a.type === 'survey';
+    return '<div class="amend-card' + (isSurvey ? ' t-survey' : '') + '" ' +
+      'data-act="amend" data-id="' + esc(a.id) + '">' +
+      '<div class="amend-ref">' + (isSurvey ? '📋 ' : '🔧 ') + esc(a.subject) + '</div>' +
+      '<div class="deal-row">' +
+        '<span class="amend-badge ' + (isSurvey ? 'ab-survey' : 'ab-amend') + '">' +
+          (isSurvey ? 'SURVEY' : 'AMEND') + '</span>' +
+        (a.area ? '<span class="area-badge">' + esc(a.area) + '</span>' : '<span class="warn-chip">No postcode</span>') +
+      '</div>' +
+      '<div class="amend-meta">' +
+        (a.originalDispatchDate ? 'Dispatched ' + App.fmtDayMonth(a.originalDispatchDate) : 'Original dispatch unknown') +
+        (a.stageLabel ? ' · ' + esc(a.stageLabel) : '') +
+      '</div>' +
+    '</div>';
+  }
+
+  // ── Amendment detail modal (read-only) ─────────────────────
+  function openAmendModal(id) {
+    var a = null;
+    for (var i = 0; i < allAmendments.length; i++) if (String(allAmendments[i].id) === String(id)) a = allAmendments[i];
+    if (!a) return;
+    document.getElementById('amendTitle').textContent = a.subject;
+    var rows = [];
+    rows.push((a.type === 'survey' ? '📋 Site survey' : '🔧 Amendment') +
+      (a.category ? ' (' + esc(a.category) + ')' : '') +
+      (a.stageLabel ? ' · stage: ' + esc(a.stageLabel) : ''));
+    rows.push('Order: <strong>' + esc(a.dealName || '—') + '</strong> · ' + esc(a.postCode || 'no postcode'));
+    rows.push('Originally dispatched: <strong>' + esc(App.fmtDateFull(a.originalDispatchDate)) + '</strong>');
+    if (a.agreedSurveyDate)    rows.push('Agreed survey date: <strong>' + esc(App.fmtDateFull(a.agreedSurveyDate)) + '</strong>');
+    if (a.finalResolutionDate) rows.push('Final resolution date: <strong>' + esc(App.fmtDateFull(a.finalResolutionDate)) + '</strong>');
+    if (a.repairScheduledDate) rows.push('Repair scheduled: <strong>' + esc(App.fmtDateFull(a.repairScheduledDate)) + '</strong>');
+    rows.push('<span style="color:#999">Visit dates are managed in HubSpot — this board shows them read-only.</span>');
+    document.getElementById('amendSub').innerHTML = rows.join('<br>');
+    document.getElementById('amendHsLink').href = a.url || '#';
+    document.getElementById('amendModal').classList.add('show');
+  }
+  function closeAmendModal() {
+    document.getElementById('amendModal').classList.remove('show');
+  }
+
+  // ── HubSpot handover export ────────────────────────────────
+  // Sheds planned in the app whose date/status Sasha still needs to enter
+  // into HubSpot by hand (the app deliberately never writes back).
+  function hsExportRows() {
+    return allJobs.filter(function (d) {
+      return d.statusSource !== 'hubspot' && d.status && d.proposedDate;
+    }).sort(function (a, b) {
+      var order = { confirmed: 0, proposed: 1, draft: 2 };
+      var s = (order[a.status] || 3) - (order[b.status] || 3);
+      return s !== 0 ? s : (a.proposedDate || '').localeCompare(b.proposedDate || '');
+    });
+  }
+
+  function openHsExport() {
+    var rows = hsExportRows();
+    var body = document.getElementById('hsExportBody');
+    if (!rows.length) {
+      body.innerHTML = '<div class="section-empty" style="padding:18px">Nothing to hand over — no app-planned dates awaiting entry in HubSpot.</div>';
+    } else {
+      body.innerHTML =
+        '<table style="width:100%;border-collapse:collapse;font-size:12px">' +
+        '<tr style="text-align:left;border-bottom:2px solid #ccc">' +
+          '<th style="padding:4px 6px">Shed</th><th style="padding:4px 6px">Dispatch date to enter</th>' +
+          '<th style="padding:4px 6px">Status to set</th><th style="padding:4px 6px">HubSpot now</th><th></th></tr>' +
+        rows.map(function (d) {
+          return '<tr style="border-bottom:1px solid #eee">' +
+            '<td style="padding:4px 6px">' + esc(d.name) + '</td>' +
+            '<td style="padding:4px 6px;white-space:nowrap"><strong>' + esc(App.fmtDateFull(d.proposedDate)) + '</strong></td>' +
+            '<td style="padding:4px 6px"><span class="status-pill status-' + esc(d.status) + '">' + esc(d.status) + '</span></td>' +
+            '<td style="padding:4px 6px;color:#777">' + esc(d.hsDispatchStatus || 'no status') +
+              (d.targetDispatchDate ? ' · ' + esc(App.fmtDayMonth(d.targetDispatchDate)) : ' · no date') + '</td>' +
+            '<td style="padding:4px 6px"><a href="' + esc(d.hsUrl) + '" target="_blank" rel="noopener">Open</a></td>' +
+          '</tr>';
+        }).join('') + '</table>';
+    }
+    document.getElementById('hsExportModal').classList.add('show');
+  }
+
+  function closeHsExport() {
+    document.getElementById('hsExportModal').classList.remove('show');
+  }
+
+  // Copies a tab-separated table (pastes cleanly into Sheets/Excel/email).
+  function copyHsExport() {
+    var lines = [['Shed', 'Dispatch date (yyyy-mm-dd)', 'Status to set', 'HubSpot status now', 'HubSpot date now', 'HubSpot link']];
+    hsExportRows().forEach(function (d) {
+      lines.push([d.name, d.proposedDate, d.status, d.hsDispatchStatus || '', d.targetDispatchDate || '', d.hsUrl]);
+    });
+    var tsv = lines.map(function (r) { return r.join('\t'); }).join('\n');
+    var done = function () {
+      var btn = document.getElementById('hsExportCopyBtn');
+      btn.textContent = '✓ Copied';
+      setTimeout(function () { btn.textContent = 'Copy for pasting'; }, 1600);
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(tsv).then(done, function () { fallbackCopy_(tsv); done(); });
+    } else { fallbackCopy_(tsv); done(); }
+  }
+
+  function fallbackCopy_(text) {
+    var ta = document.createElement('textarea');
+    ta.value = text;
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+  }
+
+  function buildShedCard(d) {
+    var status = d.status || (d.proposedDate ? 'draft' : '');
+    var hsLocked = d.statusSource === 'hubspot';
+    // Card tint by dispatch type (installs stay white; visits are the
+    // violet dashed cards). Left border stays the STATUS colour.
+    var dt = (d.dispatchType || '').toLowerCase();
+    var dtCls = dt.indexOf('courier') > -1 ? ' dt-courier'
+              : dt.indexOf('collect') > -1 ? ' dt-collection'
+              : dt.indexOf('del') > -1 ? ' dt-delivery' : '';
+    var stCls = (status ? ' st-' + status : ' st-draft') +
+                (hsLocked && status !== 'confirmed' ? ' hs-locked' : '') +
+                (d.inPenaltyWindow ? ' in-penalty' : '') + dtCls;
+    var draggable = (status === 'confirmed' || hsLocked) ? '' : 'draggable="true"';
+
+    // Window check: proposed date must be within target ± window
+    var outOfWindow = false;
+    if (d.proposedDate && d.targetDispatchDate) {
+      outOfWindow = Math.abs(App.daysBetween(d.targetDispatchDate, d.proposedDate)) > CFG.dispatchWindowDays;
+    }
+
+    var targetHtml = '';
+    if (d.onHold) {
+      targetHtml = '<span class="date-badge hold" title="Dispatch status is On hold in HubSpot — parked until sales lift it">⏸ ON HOLD</span>';
+    } else if (d.targetDispatchDate) {
+      var today = App.todayStr();
+      var cls = 'date-badge';
+      if (d.targetDispatchDate < today) cls += ' red';
+      else if (App.daysBetween(today, d.targetDispatchDate) <= 21) cls += ' amber';
+      targetHtml = '<span class="' + cls + '" title="Target dispatch (given to customer)">🎯 ' +
+        App.fmtDayMonth(d.targetDispatchDate) + '</span>';
+    } else {
+      targetHtml = '<span class="date-badge nodate">No target</span>';
+    }
+
+    var finishHtml = d.missingFinish
+      ? '<span class="warn-chip">⚠ No colour</span>'
+      : (d.finish ? '<span class="finish-chip">' + esc(d.finish) + '</span>' : '');
+
+    var typeHtml = d.dispatchType ? '<span class="type-chip">' + esc(d.dispatchType) + '</span>' : '';
+    // Housekeeping flag: installers get drawings/photos via this link
+    var folderHtml = !d.projectFolder
+      ? '<span class="warn-chip" title="No Project Folder link on the deal — installers won\'t have drawings/photos on site. Add it in HubSpot.">📁 no folder</span>' : '';
+
+    var statusPill = status
+      ? '<span class="status-pill status-' + status + '">' + status + '</span>' : '';
+    if (d.singleDay) statusPill += '<span class="solo-chip" title="Flagged as a single-install day">SOLO DAY</span>';
+
+    return '<div class="deal-card' + stCls + (outOfWindow ? ' out-of-window' : '') + '" ' +
+      (d.inPenaltyWindow ? 'title="Within the 14-day penalty window — moving this confirmed date incurs a customer penalty" ' : '') +
+      'id="dc-' + esc(d.id) + '" ' + draggable + ' ' +
+      'data-card-id="' + esc(d.id) + '" data-act="deal" data-id="' + esc(d.id) + '">' +
+      '<div class="deal-ref">' + esc(d.name) + '</div>' +
+      '<div class="deal-row">' +
+        (d.area ? '<span class="area-badge">' + esc(d.area) + '</span>' : '<span class="warn-chip">No postcode</span>') +
+        targetHtml + statusPill +
+      '</div>' +
+      '<div class="deal-row">' + typeHtml + finishHtml +
+        (d.shedType ? '<span class="shed-count">' + esc(d.shedType) + '</span>' : '') +
+        folderHtml +
+      '</div>' +
+      (outOfWindow ? '<div class="win-note">⚠ Outside ±' + CFG.dispatchWindowDays + 'd of target</div>' : '') +
+    '</div>';
+  }
+
+  // ── Drag and drop ──────────────────────────────────────────
+  function onDragStart(e, id) {
+    var d = jobById(id);
+    if (d && d.status === 'confirmed') { e.preventDefault(); return; }
+    dragId = id;
+    e.dataTransfer.effectAllowed = 'move';
+    setTimeout(function () {
+      var el = document.getElementById('dc-' + id);
+      if (el) el.classList.add('dragging');
+    }, 0);
+  }
+  function onDragEnd() {
+    if (dragId) {
+      var el = document.getElementById('dc-' + dragId);
+      if (el) el.classList.remove('dragging');
+    }
+    dragId = null;
+    document.querySelectorAll('.day-slot.drag-over, .sidebar-body.drag-over, .fday-cards.drag-over')
+      .forEach(function (el) { el.classList.remove('drag-over'); });
+  }
+  function onDragOver(e, dayStr) {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    var el = dayStr ? document.getElementById('slot-' + dayStr) : document.getElementById('trayBody');
+    if (el) el.classList.add('drag-over');
+  }
+  function onDragLeave(e) {
+    if (e.currentTarget) e.currentTarget.classList.remove('drag-over');
+  }
+  function onDrop(e, dayStr) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!dragId) return;
+    // Clear drag state BEFORE render() — Chrome fires dragend on the
+    // dragged node, and once render() has replaced it the event never
+    // reaches the document listener, leaving dragId stuck (which blocks
+    // openDealModal and the auto-refresh).
+    var id = dragId;
+    onDragEnd();
+    var el = dayStr ? document.getElementById('slot-' + dayStr) : document.getElementById('trayBody');
+    if (el) el.classList.remove('drag-over');
+
+    var d = jobById(id);
+    if (!d || d.proposedDate === dayStr) return;
+
+    var prevDate = d.proposedDate, prevStatus = d.status;
+    d.proposedDate = dayStr;
+    if (!dayStr) d.status = '';
+    else if (!d.status) d.status = 'draft';
+    render();
+    updateMeta();
+
+    App.run('saveDispatch', [d.id, { proposed_dispatch_date: dayStr || null }], {
+      rollback: function () {
+        d.proposedDate = prevDate;
+        d.status = prevStatus;
+        render();
+        updateMeta();
+      }
+    });
+  }
+
+  // ── Deal modal ─────────────────────────────────────────────
+  function openDealModal(id) {
+    if (dragId) return;
+    editingId = id;
+    var d = jobById(id);
+    if (!d) return;
+
+    document.getElementById('dealModalTitle').textContent = d.name;
+    var statusTxt = d.status ? d.status : 'not placed yet';
+    document.getElementById('dealModalSub').innerHTML =
+      esc(d.postCode || 'No postcode') + (d.shedType ? ' · ' + esc(d.shedType) : '') +
+      (d.missingFinish ? ' · <span style="color:#b71c1c;font-weight:700">colour not chosen</span>'
+                       : (d.finish ? ' · ' + esc(d.finish) : '')) +
+      '<br>Target given to customer: <strong>' + esc(App.fmtDateFull(d.targetDispatchDate)) + '</strong>' +
+      '<br>Your proposed dispatch date: <strong>' +
+        (d.proposedDate ? esc(App.fmtDateFull(d.proposedDate)) : '—') +
+      '</strong> (' + esc(statusTxt) + ')' +
+      (d.inPenaltyWindow ? '<br><span style="color:#b71c1c;font-weight:700">⚠ Within the 14-day penalty window — moving this date now incurs a customer penalty.</span>' : '');
+    var hsLocked = d.statusSource === 'hubspot';
+    document.getElementById('dealDate').value = d.proposedDate || '';
+    document.getElementById('dealDate').disabled = hsLocked;
+    document.getElementById('dealNotes').value = d.dispatchNotes || '';
+    document.getElementById('dealSingleDay').checked = !!d.singleDay;
+    document.getElementById('dealHsLink').href = d.hsUrl || '#';
+    document.getElementById('dealRemoveBtn').style.display = (d.proposedDate && !hsLocked) ? '' : 'none';
+    renderStatusBtns(d);
+    document.getElementById('dealModal').classList.add('show');
+  }
+
+  function renderStatusBtns(d) {
+    var el = document.getElementById('dealStatusBtns');
+    if (d.statusSource === 'hubspot') {
+      el.innerHTML = '<span style="font-size:12px;color:#555">🔒 Status is <strong>' + esc(d.status) +
+        '</strong>, managed by sales in HubSpot (shed dispatch_status). Change it there, then Refresh here.</span>';
+      return;
+    }
+    if (!d.proposedDate) { el.innerHTML = '<span style="font-size:12px;color:#999">Place the order on a date to set its status.</span>'; return; }
+    var st = d.status || 'draft';
+    var html = '';
+    if (st !== 'proposed' && st !== 'confirmed') {
+      html += '<button class="btn-sec" ' + (d.missingFinish ? 'disabled title="Colour/finish needed first"' : '') +
+        ' data-act="set-status" data-status="proposed">→ Mark proposed to client</button>';
+    }
+    if (st === 'proposed') {
+      html += '<button class="btn-pri" data-act="set-status" data-status="confirmed">✓ Client confirmed</button>';
+      html += '<button class="btn-sec" data-act="set-status" data-status="draft">← Back to draft</button>';
+    }
+    if (st === 'confirmed') {
+      html += '<button class="btn-sec" data-act="set-status" data-status="draft">← Unconfirm (back to draft)</button>';
+    }
+    if (d.missingFinish && st === 'draft') {
+      html += '<div style="font-size:12px;color:#b71c1c;width:100%">⚠ Cannot propose until every shed has a colour — set it in HubSpot, then Refresh.</div>';
+    }
+    el.innerHTML = html;
+  }
+
+  function setStatus(status) {
+    if (!editingId) return;
+    var d = jobById(editingId);
+    var prev = d.status;
+    d.status = status === 'draft' ? 'draft' : status;
+    render();
+    renderStatusBtns(d);
+    App.run('setDispatchStatus', [editingId, status], {
+      ok: function () { updateMeta(); },
+      rollback: function () { d.status = prev; render(); renderStatusBtns(d); }
+    });
+  }
+
+  function saveDealModal() {
+    if (!editingId) return;
+    var d = jobById(editingId);
+    var hsLocked = d.statusSource === 'hubspot';
+    var date = document.getElementById('dealDate').value;
+    var notes = document.getElementById('dealNotes').value;
+    var solo = document.getElementById('dealSingleDay').checked;
+
+    var prevDate = d.proposedDate, prevStatus = d.status, prevSolo = d.singleDay;
+    d.dispatchNotes = notes;
+    d.singleDay = solo;
+
+    var fields = { notes: notes || null, single_day: solo ? 'TRUE' : null };
+    if (!hsLocked) {
+      // Date changes only when the app owns the status
+      d.proposedDate = date;
+      if (!date) d.status = '';
+      else if (!d.status) d.status = 'draft';
+      fields.proposed_dispatch_date = date || null;
+    }
+
+    App.run('saveDispatch', [editingId, fields], {
+      rollback: function () {
+        d.proposedDate = prevDate; d.status = prevStatus; d.singleDay = prevSolo;
+        render();
+      }
+    });
+
+    closeDealModal();
+    render();
+    updateMeta();
+  }
+
+  function removeFromBoard() {
+    if (!editingId) return;
+    var d = jobById(editingId);
+    if (d.status === 'confirmed' && !confirm('This date is CONFIRMED with the client. Remove anyway?')) return;
+    document.getElementById('dealDate').value = '';
+    saveDealModal();
+  }
+
+  function closeDealModal() {
+    document.getElementById('dealModal').classList.remove('show');
+    editingId = null;
+  }
+
+  // ── Install-day suggestions ────────────────────────────────
+  function openSuggestions() {
+    var panel = document.getElementById('suggPanel');
+    panel.classList.add('open');
+    document.getElementById('suggBody').innerHTML =
+      '<div class="loading-wrap" style="height:200px"><div class="spinner"></div><div>Planning routes — postcodes, drive times, van space…</div></div>';
+    App.run('suggestInstallDays', [], {
+      ok: renderSuggestions,
+      err: function (e) {
+        document.getElementById('suggBody').innerHTML =
+          '<div class="sugg-note">Could not build suggestions: ' + esc(e.message) + '</div>';
+      }
+    });
+  }
+  function closeSuggestions() {
+    document.getElementById('suggPanel').classList.remove('open');
+  }
+
+  function fmtDayDate(iso) {
+    var days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    return days[App.parseIso(iso).getDay()] + ' ' + App.fmtDayMonth(iso);
+  }
+  function fmtLeg(mins) {
+    return mins >= 60 ? Math.floor(mins / 60) + 'h' + App.pad2(mins % 60) : mins + 'm';
+  }
+
+  function renderSuggestions(result) {
+    var plans = (result && result.plans) || [];
+    var html = '';
+    if (!plans.length) {
+      html = '<div class="sugg-note">Nothing to plan — every geo-eligible order is already proposed or confirmed.</div>';
+    }
+
+    plans.forEach(function (p, i) {
+      var areas = p.stops.map(function (s) { return s.area; }).filter(Boolean);
+      var vanCls = p.vanSlots >= p.vanSlotsMax ? ' full' : '';
+
+      // Route timeline: Workshop → (leg) Stop [n sheds] → … → (leg) back
+      var route = '<div class="route-line">🏭 Workshop';
+      p.stops.forEach(function (s, si) {
+        route += ' <span class="route-leg">— ' + fmtLeg(s.legMins) + ' →</span> ' +
+          (s.existing ? '<span class="sugg-existing" title="Already on this day (agreed with the customer) — not moved">🔒 ' + esc(s.name) + '</span>'
+                      : '<strong>' + esc(s.name) + '</strong>') +
+          (s.sheds > 1 ? ' <span class="shed-count">(' + s.sheds + ' sheds)</span>' : '');
+      });
+      route += ' <span class="route-leg">— ' + fmtLeg(p.returnLegMins) + ' →</span> 🏭</div>';
+
+      html += '<div class="sugg-group' + (p.joinsExisting ? ' sugg-join' : '') + '">' +
+        '<div class="sugg-group-hdr">' +
+          '<span class="sugg-group-title">' + fmtDayDate(p.suggestedDate) +
+            (p.joinsExisting ? ' · ➕ joins an agreed day (' + p.existingCount + ' ' + esc(p.existingStatus || '') + ')' : '') +
+            (p.isLondon ? ' · London run' : ' · local run') +
+            (areas.length ? ' — ' + esc(areas.join(', ')) : '') + '</span>' +
+          '<button class="btn-pri" data-act="apply-plan" data-idx="' + i + '">' + (p.joinsExisting ? 'Add to day' : 'Place day') + '</button>' +
+        '</div>' +
+        '<div class="sugg-meta">' +
+          '<span class="van-meter' + vanCls + '">🚚 van ' + p.vanSlots + ' / ' + p.vanSlotsMax + '</span>' +
+          '<span>⏱ est ' + p.estHours + 'h (target ≤' + p.targetHours + 'h)</span>' +
+          '<span>🛖 ' + p.totalSheds + ' shed' + (p.totalSheds === 1 ? '' : 's') + ', ' + p.stops.length + ' customer' + (p.stops.length === 1 ? '' : 's') + '</span>' +
+          '<span>📅 window ' + App.fmtDayMonth(p.windowStart) + ' – ' + App.fmtDayMonth(p.windowEnd) + '</span>' +
+        '</div>' +
+        route +
+        (p.warnings && p.warnings.length
+          ? p.warnings.map(function (w) { return '<div class="sugg-warn">⚠ ' + esc(w) + '</div>'; }).join('')
+          : '') +
+        (p.nearbyVisits && p.nearbyVisits.length
+          ? '<div class="sugg-note" style="padding:6px 0 0">🔧 <strong>Open visits nearby</strong> — same trip could absorb: ' +
+            p.nearbyVisits.map(function (a) {
+              return esc(a.subject) + ' (' + a.km + ' km' + (a.date ? ', booked ' + App.fmtDayMonth(a.date) : ', no date yet') + ')';
+            }).join('; ') + '</div>'
+          : '') +
+      '</div>';
+    });
+
+    var sk = result.skipped || {};
+    if (sk.noPostcode && sk.noPostcode.length) {
+      html += '<div class="sugg-note"><strong>Skipped (postcode missing/unrecognised):</strong> ' +
+        sk.noPostcode.map(esc).join(', ') + '</div>';
+    }
+    if (sk.noTarget && sk.noTarget.length) {
+      html += '<div class="sugg-note"><strong>Skipped (no target dispatch date):</strong> ' +
+        sk.noTarget.map(esc).join(', ') + '</div>';
+    }
+
+    window._suggPlans = plans;
+    document.getElementById('suggBody').innerHTML = html;
+  }
+
+  function applyPlan(idx) {
+    var p = (window._suggPlans || [])[idx];
+    if (!p) return;
+    var label = p.stops.map(function (s) { return s.area; }).filter(Boolean).join('/');
+    App.run('applySuggestedGroup', [p.shedIds, p.suggestedDate, label], {
+      ok: function () {
+        closeSuggestions();
+        loadData(false);
+      }
+    });
+  }
+
+  // ── Week navigation ────────────────────────────────────────
+  function shiftWeeks(delta) {
+    if (focusWeek !== null) { focusWeek += delta; renderBoard(); return; }
+    weekOffset += delta; renderBoard();
+  }
+  function jumpToToday() {
+    if (focusWeek !== null) { focusWeek = 0; renderBoard(); return; }
+    weekOffset = 0; renderBoard();
+  }
+
+  function jobById(id) {
+    for (var i = 0; i < allJobs.length; i++) if (allJobs[i].id === id) return allJobs[i];
+    return null;
+  }
+
+  // ── Event delegation ───────────────────────────────────────
+  // Board/tray/panel HTML carries data labels instead of inline handler
+  // strings; these listeners route everything to the same functions as
+  // before. data-drop = drop target ('' = tray, else a day ISO date);
+  // data-card-id = draggable order card; data-act = click actions.
+  document.addEventListener('click', function (e) {
+    var el = e.target.closest('[data-act]');
+    if (!el) return;
+    var d = el.dataset;
+    switch (d.act) {
+      case 'deal':       openDealModal(d.id); return;
+      case 'amend':      openAmendModal(d.id); return;
+      case 'apply-plan': applyPlan(parseInt(d.idx, 10)); return;
+      case 'set-status': setStatus(d.status); return;
+      case 'week-focus':   focusWeek = parseInt(d.idx, 10); renderBoard(); return;
+      case 'week-unfocus': focusWeek = null; renderBoard(); return;
+    }
+  });
+  document.addEventListener('input', function (e) {
+    var el = e.target.closest('[data-day-note]');
+    if (el) onDayNoteInput(el.dataset.dayNote, el.value);
+  });
+  document.addEventListener('dragstart', function (e) {
+    var el = e.target.closest('[data-card-id]');
+    if (el) onDragStart(e, el.dataset.cardId);
+  });
+  document.addEventListener('dragend', onDragEnd);
+  document.addEventListener('dragover', function (e) {
+    var el = e.target.closest('[data-drop]');
+    if (el) onDragOver(e, el.dataset.drop);
+  });
+  document.addEventListener('drop', function (e) {
+    var el = e.target.closest('[data-drop]');
+    if (el) onDrop(e, el.dataset.drop);
+  });
+  document.addEventListener('dragleave', function (e) {
+    var el = e.target.closest('[data-drop]');
+    if (el) onDragLeave({ currentTarget: el });   // onDragLeave reads currentTarget
+  });
+  // Safety net: mouse events are suppressed during a native drag, so a
+  // mousedown arriving while dragId is set means the dragend that should
+  // have cleared it was lost — reset, or cards stop opening on click.
+  document.addEventListener('mousedown', function () { if (dragId) onDragEnd(); });
+</script>
+</body>
+</html>
