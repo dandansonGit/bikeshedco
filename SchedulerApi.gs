@@ -93,10 +93,14 @@ function saveSprayPlan(entries) {
 
 function estimateBuildDays_(shedType) {
   if (!shedType) return null;
-  var t = shedType.toUpperCase();
+  // Green-roof SKUs fall back to the base model (CONFIG.TYPE_ALIASES):
+  // candidates are tried in order, so a future explicit PGR/BSGR entry wins.
+  var cands = typeMatchCandidates_(shedType);
   var keys = Object.keys(CONFIG.BUILD_DAYS);
-  for (var i = 0; i < keys.length; i++) {
-    if (t.indexOf(keys[i].toUpperCase()) === 0) return CONFIG.BUILD_DAYS[keys[i]];
+  for (var c = 0; c < cands.length; c++) {
+    for (var i = 0; i < keys.length; i++) {
+      if (cands[c].indexOf(keys[i].toUpperCase()) === 0) return CONFIG.BUILD_DAYS[keys[i]];
+    }
   }
   return null; // bespoke — no standard estimate
 }

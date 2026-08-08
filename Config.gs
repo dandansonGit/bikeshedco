@@ -91,6 +91,18 @@ var CONFIG = {
     'S3': 2.716, 'S4': 2.806, 'CS': 2.349, 'GS-std': 3.455
   },
 
+  // Green-roof variants (PGR*/BSGR*, added to the range Aug 2026) DEFAULT to
+  // the base model's timings: PGR3 → P3, PGR5 → P5, BSGR1 → BS1, … (Dan,
+  // 2026-08-08). Applies wherever SKU prefixes are matched (BUILD_DAYS,
+  // INSTALL_DAY.slotsByPrefix) via typeMatchCandidates_ below. The SKU's own
+  // entry always wins — add e.g. 'PGR3' to BUILD_DAYS to give a green-roof
+  // model its own timing later. PGR2/PGR4 inherit the existing P2/P4 gap
+  // (no BUILD_DAYS entry → "?"), and PGR-besp/BSGR-besp stay bespoke.
+  TYPE_ALIASES: [
+    { match: /^PGR/,  base: 'P'  },   // Pedalbase with Green Roof
+    { match: /^BSGR/, base: 'BS' }    // Bin Store with Green Roof
+  ],
+
   // Spray booth rules — the booth is the workshop's capacity meter.
   // Capacity 2–4 jobs/day; ideal pace 2.5–3 sprayed per day (Dan, 2026-07-14).
   SPRAY: {
@@ -362,6 +374,18 @@ var CONFIG = {
 
   TIMEZONE: 'Europe/London'
 };
+
+// Prefix-match candidates for a shed type, in priority order: the SKU
+// itself first, then its aliased base model (PGR3 → P3, BSGR2 → BS2), so an
+// explicit green-roof entry in any prefix table always beats the fallback.
+function typeMatchCandidates_(shedType) {
+  var t = String(shedType || '').toUpperCase().trim();
+  var out = [t];
+  (CONFIG.TYPE_ALIASES || []).forEach(function(a) {
+    if (a.match.test(t)) out.push(t.replace(a.match, a.base));
+  });
+  return out;
+}
 
 // Subset of config the frontends need. Keeps business rules single-sourced:
 // the client never hardcodes team size, spray rules or stage lists.

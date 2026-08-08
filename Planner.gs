@@ -262,10 +262,13 @@ function slotsFor_(shed) {
 
 function slotsForType_(shedType) {
   var D = CONFIG.INSTALL_DAY;
-  var t = String(shedType || '').toUpperCase();
+  // Same green-roof fallback as estimateBuildDays_: PGR3 takes P3's slots
+  var cands = typeMatchCandidates_(shedType);
   var keys = Object.keys(D.slotsByPrefix);
-  for (var i = 0; i < keys.length; i++) {
-    if (t.indexOf(keys[i]) === 0) return D.slotsByPrefix[keys[i]];
+  for (var c = 0; c < cands.length; c++) {
+    for (var i = 0; i < keys.length; i++) {
+      if (cands[c].indexOf(keys[i]) === 0) return D.slotsByPrefix[keys[i]];
+    }
   }
   return D.defaultSlots;
 }

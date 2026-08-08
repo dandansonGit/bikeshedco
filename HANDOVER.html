@@ -49,6 +49,15 @@ pinned deployment (as dan@) to re-bind the triggers to the new version.
 
 CURRENTLY LIVE: v52 (2026-08-07; triggers re-bound to @52 same day —
 dispatch history, no-hours flag, BAY drawing gates, multi-type filter).
+PENDING DEPLOY (2026-08-08): green-roof timing defaults — the new
+PGR*/BSGR* SKUs (Pedalbase / Bin Store with Green Roof, added to the
+HubSpot catalogue 2026-08-04) default to the base model's timings:
+PGR3→P3, PGR5→P5, BSGR1/2/3→BS1/2/3, for BUILD_DAYS AND van slots
+(CONFIG.TYPE_ALIASES + typeMatchCandidates_ in Config.gs; used by
+estimateBuildDays_ in SchedulerApi.gs and slotsForType_ in Planner.gs).
+An explicit PGR/BSGR entry in either table wins over the fallback.
+PGR2/PGR4 inherit the P2/P4 BUILD_DAYS gap; *-besp variants stay
+bespoke. Remember the trigger-version trap after deploying.
 v47 = the fixes from a
 full live USER CHECK of all six views (Dan asked for a human-style
 walkthrough; findings verified live in Dan's Chrome):
