@@ -895,7 +895,12 @@ body.lbl-view #labelsView { display: block !important; }
 </div>
 
 <footer>
-  <span>The Bike Shed Company — internal tool</span>
+  <!-- BUMP THIS on every deploy, in the same change as the code. It is how
+       you tell which build someone is actually looking at when they report a
+       problem — plain HTML, so it shows even if the job list never loads. -->
+  <span>The Bike Shed Company — Live Jobs Tracker ·
+    <strong id="appVersion" title="Deployed build. Quote this when reporting a problem.">v150</strong>
+  </span>
   <span id="footerRight">—</span>
 </footer>
 

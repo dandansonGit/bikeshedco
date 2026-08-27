@@ -1,6 +1,35 @@
 ﻿// ============================================================
-// BSC Job Tracker � Apps Script Backend  v4
-// Paste this entire file into your Apps Script project as Code.gs
+// BSC LIVE JOBS TRACKER — Apps Script backend
+// ============================================================
+// WHICH APP AM I?  This is the REVCAP-fed tracker Dan and Steve use daily.
+// It is NOT the BSC Production Hub. The two are easy to confuse: both are
+// production trackers, both have a state sheet whose name starts
+// "BSC_", and neither knows about the other's ticks.
+//
+//   Script ID    1a7lIjP7wbANshiHihuj0GSt3PIC8tnd17a4y2L4U7nWRBel_2Ifr1dn5
+//   Live URL     .../s/AKfycbxeSb1NB7JKxqbNw4KUAMlwhLpu8xmXbrPa_36oik4C-1FEurCei73V3CGKbp8D7dIV/exec
+//   HEAD URL     .../s/AKfycbzhmQ2UCi_4wXSEA160hERZX0HQ6bVY7mHEEtor-0Y/exec   (testing)
+//   State sheet  BSC_JobTracker_State — 1ckWXJkStag_M_6jQ8kBtDiDJBS0QDT-POQNUzH307WQ
+//                  tab BSC_JobTracker_State     job ticks (this file writes it)
+//                  tab BSC_JobTracker_Snapshot  job list snapshot, for change detection
+//   Data source  REVCAP .xlsm, dropped in by hand — parsed client-side in
+//                Index.html. Until a file is dropped the page reads
+//                "Fetching live projects from HubSpot", which is a
+//                misleading placeholder, not a hang. Code.gs does contain a
+//                HubSpot loader, but the REVCAP path is what runs.
+//
+// SIBLING APP — different project, different sheet, no shared state:
+//   BSC Production Hub  1QocduDGGpH__j0UF7sSCO_fwRlVhmSxigOnglEouqvLK1QCwRrNfgoXS
+//   Six views via ?view=  (tracker, scheduler, dispatch, installer,
+//   reports, daysheets). Writes BSC_ProdTracker_State.
+//
+// DEPLOYING — pushing alone changes nothing for users. The live URL is
+// pinned to a version, so it keeps serving the old code until you redeploy:
+//   clasp push -f
+//   clasp redeploy AKfycbxeSb1NB7JKxqbNw4KUAMlwhLpu8xmXbrPa_36oik4C-1FEurCei73V3CGKbp8D7dIV -d "vN - ..."
+// or in the editor: Deploy > Manage deployments > pencil > New version.
+// Bump the version in the <footer> of Index.html in the same change, so the
+// footer tells you which build someone is actually looking at.
 // ============================================================
 
 // -- CONFIG --------------------------------------------------
