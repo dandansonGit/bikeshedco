@@ -61,6 +61,31 @@ function getState() {
   return state;
 }
 
+// -- WHO IS TICKING -------------------------------------------
+// Resolves the person whose click caused this save, for the "Updated By"
+// column. The web app is deployed with executeAs: USER_DEPLOYING, so:
+//   getActiveUser()    = the person clicking (Steve) — only returned when
+//                        they share a Workspace domain with the deployer,
+//                        which everyone here does, AND only once the
+//                        userinfo.email scope has been granted. It throws
+//                        outright if that scope is missing, so it must be
+//                        guarded or every save would fail.
+//   getEffectiveUser() = whoever deployed (Dan) — a poor stand-in for the
+//                        clicker, so it is tagged rather than recorded bare.
+// Never throws; worst case the audit column reads 'unknown'.
+
+function currentUserEmail_() {
+  try {
+    var active = Session.getActiveUser().getEmail();
+    if (active) return active;
+  } catch (e) {}
+  try {
+    var eff = Session.getEffectiveUser().getEmail();
+    if (eff) return eff + ' (deployer — clicker not available)';
+  } catch (e) {}
+  return 'unknown';
+}
+
 // -- STATE: WRITE ---------------------------------------------
 // Saves the full state object for a single job.
 
@@ -69,6 +94,15 @@ function saveJobState(jobId, stateJson) {
   var data  = sheet.getDataRange().getValues();
   var id    = String(jobId).trim();
   var now   = new Date();
+  var who   = currentUserEmail_();
+
+  // Label column D on sheets created before the audit column existed.
+  // Read from the data we already have, so this costs no extra API call.
+  if (!data.length || !String((data[0] || [])[3] || '').trim()) {
+    sheet.getRange(1, 4).setValue('Updated By')
+         .setFontWeight('bold').setBackground('#2d5a27').setFontColor('#ffffff');
+    sheet.setColumnWidth(4, 240);
+  }
 
   var firstRow     = -1;
   var duplicates   = [];
@@ -85,11 +119,11 @@ function saveJobState(jobId, stateJson) {
 
   if (firstRow === -1) {
     // Brand new job
-    sheet.appendRow([id, stateJson, now]);
+    sheet.appendRow([id, stateJson, now, who]);
   } else {
-    // Update first row
-    sheet.getRange(firstRow, 2).setValue(stateJson);
-    sheet.getRange(firstRow, 3).setValue(now);
+    // Update first row — one setValues() call rather than three setValue()
+    // calls, since this runs on every tick
+    sheet.getRange(firstRow, 2, 1, 3).setValues([[stateJson, now, who]]);
     // Delete duplicates bottom-to-top so row numbers don't shift
     for (var j = duplicates.length - 1; j >= 0; j--) {
       sheet.deleteRow(duplicates[j]);
@@ -164,11 +198,11 @@ function importFromLocalStorage(jsonString) {
     if (!hasData) { skipped++; continue; }
 
     var stateJson = JSON.stringify(stateObj);
+    var via = 'localStorage migration';
     if (rowIndex[jobId]) {
-      sheet.getRange(rowIndex[jobId], 2).setValue(stateJson);
-      sheet.getRange(rowIndex[jobId], 3).setValue(now);
+      sheet.getRange(rowIndex[jobId], 2, 1, 3).setValues([[stateJson, now, via]]);
     } else {
-      sheet.appendRow([jobId, stateJson, now]);
+      sheet.appendRow([jobId, stateJson, now, via]);
     }
     written++;
   }
@@ -871,12 +905,13 @@ function getOrCreateStateSheet() {
   var sheet = ss.getSheetByName(STATE_SHEET_NAME);
   if (!sheet) {
     sheet = ss.insertSheet(STATE_SHEET_NAME);
-    sheet.appendRow(['Job ID', 'State JSON', 'Last Updated']);
+    sheet.appendRow(['Job ID', 'State JSON', 'Last Updated', 'Updated By']);
     sheet.setFrozenRows(1);
-    sheet.getRange(1, 1, 1, 3).setFontWeight('bold').setBackground('#2d5a27').setFontColor('#ffffff');
+    sheet.getRange(1, 1, 1, 4).setFontWeight('bold').setBackground('#2d5a27').setFontColor('#ffffff');
     sheet.setColumnWidth(1, 80);
     sheet.setColumnWidth(2, 600);
     sheet.setColumnWidth(3, 160);
+    sheet.setColumnWidth(4, 240);
   }
   return sheet;
 }
